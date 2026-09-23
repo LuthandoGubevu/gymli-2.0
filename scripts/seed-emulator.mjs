@@ -94,6 +94,10 @@ async function main() {
     const uid = await makeUser({ email: `${b.username}@demo.gymli.app`, ...b, buddy: true });
     buddyIds[b.username] = uid;
     await db.doc(`gyms/${G}/gamification/${uid}`).set({ currentStreakDays: b.streak, longestStreakDays: b.streak + 6, totalVisits: b.visits, visitsThisMonth: b.month, monthKey, lastVisitDate: addDays(today, -1), updatedAt: FieldValue.serverTimestamp() });
+    for (let i = 1; i <= b.streak; i++) {
+      const k = addDays(today, -i);
+      await db.doc(`gyms/${G}/gymVisits/${uid}_${k}`).set({ uid, dateKey: k, source: "manual", createdAt: Timestamp.fromDate(new Date(Date.now() - i * 86400000)) });
+    }
     await db.collection(`gyms/${G}/personalRecords/${uid}/records`).add({ exercise: b.pr[0], exerciseKey: b.pr[0].toLowerCase(), value: b.pr[1], unit: "kg", date: addDays(today, -12), previousValue: b.pr[1] - 5, updatedAt: FieldValue.serverTimestamp() });
     for (const id of ["first_visit", "visits_5", "visits_25", "streak_7", "pr_setter"].slice(0, b.visits > 50 ? 5 : 3)) {
       await db.doc(`gyms/${G}/userBadges/${uid}/earned/${id}`).set({ earnedAt: Timestamp.fromDate(new Date(Date.now() - 90 * 86400000)) });

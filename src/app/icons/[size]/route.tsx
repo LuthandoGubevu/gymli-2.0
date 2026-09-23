@@ -13,7 +13,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ size: st
   const { gym, exists } = await getTenant();
   const bg = hslToHex(gym.brandPrimary);
   const fg = brandVars(gym.brandPrimary)["--primary-foreground"] === "0 0% 100%" ? "#FFFFFF" : "#0F172A";
-  const letter = ((exists ? gym.name : "Gymli").trim()[0] ?? "g").toLowerCase();
+  const letter = exists ? (gym.name.trim()[0] ?? "G").toUpperCase() : "g";
   const pad = maskable ? size * 0.2 : 0;
   return new ImageResponse(
     (

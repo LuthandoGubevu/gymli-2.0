@@ -15,16 +15,16 @@ export const RANK_ICONS: Record<RankIcon, LucideIcon> = {
 
 export function Logo({ size = 30, name = "Gymli", showName = true, logoUrl }: { size?: number; name?: string; showName?: boolean; logoUrl?: string }) {
   return (
-    <span className="flex items-center gap-2.5">
+    <span className="flex min-w-0 items-center gap-2.5">
       {logoUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={logoUrl} alt="" width={size} height={size} className="flex-none rounded-md object-cover" style={{ width: size, height: size }} />
       ) : (
         <span aria-hidden className="grid flex-none place-items-center rounded-md bg-primary font-display font-bold leading-none text-primary-foreground" style={{ width: size, height: size, fontSize: Math.round(size * 0.6) }}>
-          {(name.trim()[0] ?? "g").toLowerCase()}
+          {name.trim().toLowerCase() === "gymli" ? "g" : (name.trim()[0] ?? "g").toUpperCase()}
         </span>
       )}
-      {showName ? <span className="whitespace-nowrap font-display text-xl font-bold leading-none tracking-[-0.02em]">{name}</span> : null}
+      {showName ? <span className="truncate whitespace-nowrap font-display text-xl font-bold leading-tight tracking-[-0.02em]" title={name}>{name}</span> : null}
     </span>
   );
 }

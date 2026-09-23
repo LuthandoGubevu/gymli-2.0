@@ -32,7 +32,7 @@ const pct = (v: number, p: number) => Math.round((v * p) / 2.5) * 2.5;
 /** Rules-based plan from the same inputs — used without an API key, or as a fallback. */
 export function rulesPlan(i: CoachInput): PlanOutput {
   const find = (re: RegExp) => i.prs.find((p) => re.test(p.exercise.toLowerCase()));
-  const squat = find(/squat/), bench = find(/bench/), dead = find(/deadlift/), press = find(/press/);
+  const squat = find(/squat/), bench = find(/bench/), dead = find(/deadlift/), press = find(/overhead|shoulder press|military|ohp/);
   const load = (p: typeof squat, sets: string, frac: number, fallback: string) => (p ? `${sets} @ ${pct(p.value, frac)} ${p.unit}` : fallback);
   const goals = i.goals.map((g) => g.toLowerCase());
   const conditioning = goals.some((g) => /hyrox|endurance|weight|boxing/.test(g));

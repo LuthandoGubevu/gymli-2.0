@@ -48,8 +48,8 @@ export async function POST(req: Request) {
     ]);
     const tz = String(gym?.timezone ?? DEFAULT_TZ);
     const today = dateKey(new Date(), tz);
-    // Plan for this week if it's early in the week, otherwise next week.
-    const weekOf = weekdayOfKey(today) <= 2 ? mondayOf(today) : addDays(mondayOf(today), 7);
+    // Plan this week on Mon/Tue, otherwise next week.
+    const weekOf = weekdayOfKey(today) <= 1 ? mondayOf(today) : addDays(mondayOf(today), 7);
 
     const input: CoachInput = {
       firstName: String(user.firstName ?? "there"),

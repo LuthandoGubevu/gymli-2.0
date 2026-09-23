@@ -12,7 +12,7 @@ import { Field, FieldError, errProps } from "@/components/ui/field";
 import { Input, Textarea } from "@/components/ui/input";
 import { Logo } from "@/components/icons";
 import { updateGym } from "@/lib/actions/admin";
-import { hexToHsl, hslToHex } from "@/lib/branding";
+import { brandVars, hexToHsl, hslToHex } from "@/lib/branding";
 import { toast } from "@/lib/toast";
 import { errorMessage } from "@/lib/utils";
 
@@ -103,7 +103,7 @@ export function SettingsAdmin() {
           <CardHead title="Branding" />
           <div className="flex items-center gap-4 rounded-lg border border-border bg-background p-4" aria-label="Brand preview">
             <span style={{ ["--primary" as string]: hexToHsl(brandHex) ?? undefined }} className="contents"><Logo name={watch("name") || gym.name} logoUrl={watch("logoUrl") || undefined} /></span>
-            <span className="ml-auto rounded-md px-3 py-2 text-sm font-semibold" style={{ background: /^#[0-9a-f]{6}$/i.test(brandHex) ? brandHex : undefined, color: "#0F172A" }}>Check in</span>
+            <span className="ml-auto rounded-md px-3 py-2 text-sm font-semibold" style={{ background: /^#[0-9a-f]{6}$/i.test(brandHex) ? brandHex : undefined, color: `hsl(${brandVars(hexToHsl(brandHex))["--primary-foreground"]})` }}>Check in</span>
           </div>
           <div className="grid grid-cols-[72px_minmax(0,1fr)] items-end gap-3">
             <Field label="Colour" htmlFor="g-brandPicker"><input id="g-brandPicker" type="color" value={/^#[0-9a-f]{6}$/i.test(brandHex) ? brandHex : "#F7C51B"} onChange={(ev) => setValue("brandHex", ev.target.value.toUpperCase(), { shouldDirty: true, shouldValidate: true })} className="h-[46px] w-full cursor-pointer rounded-md border border-border bg-background p-1" /></Field>

@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - name: Service worker is self-contained and runs cleanly
+        run: npm run check:sw
+      - name: Firestore rules tests (emulator)
+        run: npm run test:rules
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: checks
+    env:
+      NEXT_PUBLIC_FIREBASE_API_KEY: demo-api-key
+      NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: demo-gymli.firebaseapp.com
+      NEXT_PUBLIC_FIREBASE_PROJECT_ID: demo-gymli
+      NEXT_PUBLIC_FIREBASE_APP_ID: demo-app
+      NEXT_PUBLIC_USE_EMULATORS: "true"
+      NEXT_PUBLIC_DEFAULT_GYM_ID: demo
+      NEXT_PUBLIC_DEMO_MODE: "true"
+      CHROME_PATH: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - run: npm ci
+      - name: Golden path in a real browser against emulators
+        run: npx firebase emulators:exec --only auth,firestore --project demo-gymli "bash scripts/ci-e2e.sh"
+
+  # Rules and indexes are deployed ONLY from this repo, never pasted into the console.
+  deploy-rules:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: [checks, e2e]
+    env:
+      FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - name: Deploy Firestore rules + indexes
+        if: env.FIREBASE_SERVICE_ACCOUNT != '' && env.FIREBASE_PROJECT_ID != ''
+        run: |
+          echo "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
+          npx firebase deploy --only firestore:rules,firestore:indexes --project "$FIREBASE_PROJECT_ID" --non-interactive
+      - name: Skipped (not configured)
+        if: env.FIREBASE_SERVICE_ACCOUNT == '' || env.FIREBASE_PROJECT_ID == ''
+        run: echo "::warning::Set the FIREBASE_PROJECT_ID variable and FIREBASE_SERVICE_ACCOUNT secret to auto-deploy Firestore rules."

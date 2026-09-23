@@ -23,8 +23,8 @@ export async function generateMetadata(): Promise<Metadata> {
     manifest: "/manifest.webmanifest",
     icons: { icon: [{ url: "/icons/192", type: "image/png", sizes: "192x192" }], apple: [{ url: "/icons/180", sizes: "180x180" }] },
     appleWebApp: { capable: true, title: name, statusBarStyle: "black-translucent" },
-    // Ship BOTH capability tags — the Apple one alone isn't enough for Chrome/Android.
-    other: { "mobile-web-app-capable": "yes", "apple-mobile-web-app-capable": "yes" },
+    // Ship BOTH capability tags: Next emits mobile-web-app-capable from appleWebApp; add the Apple one explicitly.
+    other: { "apple-mobile-web-app-capable": "yes" },
   };
 }
 

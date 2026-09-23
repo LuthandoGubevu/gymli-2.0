@@ -13,7 +13,7 @@ export function FieldError({ id, children }: { id?: string; children?: React.Rea
   if (!children) return null;
   return (
     <span id={id} role="alert" className="flex items-center gap-1.5 text-[13px] font-medium text-destructive">
-      <CircleAlert size={14} aria-hidden />
+      <CircleAlert size={14} aria-hidden className="flex-none" />
       {children}
     </span>
   );

@@ -13,7 +13,7 @@
     "emulators": "firebase emulators:start --only auth,firestore --project demo-gymli",
     "seed": "node scripts/seed-emulator.mjs",
     "test": "vitest run",
-    "test:rules": "firebase emulators:exec --only firestore --project demo-gymli \"vitest run tests/rules\"",
+    "test:rules": "RULES=1 firebase emulators:exec --only firestore --project demo-gymli \"vitest run tests/rules\"",
     "e2e": "node scripts/e2e.mjs",
     "deploy:rules": "firebase deploy --only firestore:rules,firestore:indexes"
   },

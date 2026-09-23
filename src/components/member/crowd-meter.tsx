@@ -121,12 +121,12 @@ export function CrowdMeter() {
           <h2 className="eyebrow">Busiest times · last 8 weeks</h2>
           <span className="flex items-center gap-2 font-mono text-xs text-muted-foreground" aria-hidden>Quiet<span className="h-2 w-20 rounded-full bg-[linear-gradient(90deg,hsl(var(--primary)/.08),hsl(var(--primary)/.95))]" />Busy</span>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[560px] border-separate border-spacing-1">
+        <div className="relative overflow-x-auto">
+          <table className="w-full min-w-[560px] table-fixed border-separate border-spacing-1">
             <caption className="sr-only">Average check-ins by weekday and hour over the last 8 weeks</caption>
             <thead>
               <tr>
-                <th className="w-10" />
+                <th className="w-10"><span className="sr-only">Day</span></th>
                 {Array.from({ length: gym.closeHour - gym.openHour + 1 }, (_, i) => gym.openHour + i).map((h) => (
                   <th key={h} scope="col" className="text-center font-mono text-[10px] font-normal text-muted-foreground">{h % 2 === 1 ? hh(h) : <span className="sr-only">{hh(h)}</span>}</th>
                 ))}

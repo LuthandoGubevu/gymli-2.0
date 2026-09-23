@@ -9,11 +9,11 @@ export function BrandBarChart({ data, caption, unit, height = 200 }: { data: Bar
     <figure className="flex flex-col gap-2">
       <div style={{ height }} aria-hidden>
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} margin={{ top: 18, right: 4, bottom: 0, left: -18 }} barCategoryGap={2}>
+          <BarChart data={data} margin={{ top: 18, right: 4, bottom: 0, left: 0 }} barCategoryGap={2}>
             <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeDasharray="0" />
             <XAxis dataKey="label" tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={8}
               tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10, fontFamily: "var(--font-mono)" }} />
-            <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={40}
+            <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={32}
               tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10, fontFamily: "var(--font-mono)" }} />
             <Tooltip cursor={{ fill: "hsl(var(--muted) / .5)" }}
               content={({ active, payload }) => active && payload?.[0] ? (

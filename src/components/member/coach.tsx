@@ -63,8 +63,8 @@ export function CoachPage() {
                     <p className="text-sm text-muted-foreground">{d.summary}</p>
                   </div>
                   <ul className="flex flex-col divide-y divide-border">
-                    {d.exercises.map((x) => (
-                      <li key={x.name} className="flex items-baseline justify-between gap-3 py-2.5 text-sm">
+                    {d.exercises.map((x, i) => (
+                      <li key={`${i}-${x.name}`} className="flex items-baseline justify-between gap-3 py-2.5 text-sm">
                         <span className="font-medium">{x.name}</span>
                         <span className="text-right font-mono text-[13px] text-muted-foreground">{x.prescription}</span>
                       </li>
