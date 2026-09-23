@@ -1,0 +1,23 @@
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  reactStrictMode: true,
+  poweredByHeader: false,
+  async rewrites() {
+    return [{ source: "/favicon.ico", destination: "/icons/192" }];
+  },
+  async headers() {
+    return [
+      {
+        // The service worker must never be cached by the CDN, or fixes to it never reach installed clients.
+        source: "/sw.js",
+        headers: [
+          { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+          { key: "Service-Worker-Allowed", value: "/" },
+        ],
+      },
+    ];
+  },
+};
+
+export default nextConfig;
