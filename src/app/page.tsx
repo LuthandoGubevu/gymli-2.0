@@ -18,7 +18,7 @@ export default async function Home() {
   if (source === "subdomain" && exists) redirect("/login");
 
   return (
-    <div className="min-h-dvh bg-background">
+    <div className="font-helvetica min-h-dvh bg-background">
       <header className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-border bg-glass px-[clamp(16px,4vw,48px)] py-3.5 backdrop-blur-[14px]">
         <Logo />
         <nav className="flex items-center gap-1.5" aria-label="Site">

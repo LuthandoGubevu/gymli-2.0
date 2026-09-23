@@ -85,6 +85,15 @@
 }
 
 @layer utilities {
+  /* Landing page only: Helvetica family for every text role (display, body, mono).
+     Helvetica isn't a web font, so this uses the visitor's installed copy:
+     Helvetica Neue / Helvetica on Apple devices, Arial (metric-compatible) elsewhere. */
+  .font-helvetica {
+    --font-display: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --font-sans: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --font-mono: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-family: var(--font-sans);
+  }
   .bg-primary-soft { background-color: hsl(var(--primary) / var(--soft-alpha)); }
   .bg-glass { background-color: hsl(var(--glass) / var(--glass-alpha)); }
   .bg-scrim { background-color: hsl(var(--scrim) / var(--scrim-alpha)); }
