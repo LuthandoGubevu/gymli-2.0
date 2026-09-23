@@ -1,0 +1,409 @@
+rules_version = '2';
+
+// Gymli — Firestore security rules.
+//
+// Deployed from this file ONLY (npm run deploy:rules, or CI on push to main).
+// Never hand-edit rules in the Firebase console: the console copy silently drifts
+// from the repo. tests/rules/*.test.ts exercises every collection against the emulator.
+//
+// Tenancy: every tenant-scoped document lives under /gyms/{gymId}/..., and a member
+// belongs to exactly one gym via users/{uid}.gymId (set at signup, immutable).
+//
+// CLIENT-TRUST TRADEOFFS (there is no privileged server in the deploy target):
+//   * Occupancy (userPresence), class-slot counters, check-in rollups, streaks,
+//     badges and leaderboard entries are written by members' own clients. Rules
+//     bound the shape and size of each change (e.g. +1 visit at a time) but a
+//     determined member could still inflate their own numbers.
+//   * Waitlist promotion and notifications are written by whichever member's
+//     client triggers the event (e.g. the person cancelling). Rules restrict
+//     those cross-user writes to the exact transition they need.
+// Moving these to Cloud Functions later only requires tightening the rules
+// below — the data shapes don't change.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- helpers ----------
+    function signedIn() { return request.auth != null; }
+    function uid() { return request.auth.uid; }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function changedKeys() { return incoming().diff(existing()).affectedKeys(); }
+    function onlyChanges(keys) { return changedKeys().hasOnly(keys); }
+
+    function userPath(u) { return /databases/$(database)/documents/users/$(u); }
+    function gymPath(g) { return /databases/$(database)/documents/gyms/$(g); }
+    function profilePath(g, u) { return /databases/$(database)/documents/gyms/$(g)/memberProfiles/$(u); }
+
+    function me() { return get(userPath(uid())).data; }
+    function isMember(g) { return signedIn() && exists(userPath(uid())) && me().gymId == g; }
+    function isAdmin(g) { return isMember(g) && me().role == 'admin'; }
+    function isSelfMember(g, u) { return signedIn() && uid() == u && isMember(g); }
+
+    // Gym Buddy visibility exception: a member's otherwise-private stats are readable
+    // by other members of the same gym ONLY while both have buddyOptIn == true.
+    function buddyOptedIn(g, u) { return exists(profilePath(g, u)) && get(profilePath(g, u)).data.buddyOptIn == true; }
+    function canSeeBuddyStats(g, u) { return isMember(g) && buddyOptedIn(g, u) && buddyOptedIn(g, uid()); }
+    function selfAdminOrBuddy(g, u) { return isSelfMember(g, u) || isAdmin(g) || canSeeBuddyStats(g, u); }
+
+    function isStr(v, min, max) { return v is string && v.size() >= min && v.size() <= max; }
+    function isDateKey(v) { return v is string && v.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'); }
+    function isTime(v) { return v is string && v.matches('^[0-2][0-9]:[0-5][0-9]$'); }
+    function isNonNegInt(v) { return v is int && v >= 0; }
+    function isHsl(v) { return v is string && v.matches('^[0-9]{1,3} [0-9]{1,3}% [0-9]{1,3}%$'); }
+
+    // ---------- gyms (tenants) ----------
+    match /gyms/{gymId} {
+      // Public: branding, name and PWA manifest are needed before sign-in.
+      allow read: if true;
+
+      // Self-serve onboarding: a brand-new account creates a gym and, in the SAME
+      // batch, its own users/{uid} doc as that gym's admin (see users rule).
+      allow create: if signedIn()
+        && gymId.matches('^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$')
+        && incoming().ownerUid == uid()
+        && !exists(userPath(uid()))
+        && existsAfter(userPath(uid()))
+        && getAfter(userPath(uid())).data.gymId == gymId
+        && isStr(incoming().name, 2, 60)
+        && isHsl(incoming().brandPrimary);
+
+      allow update: if isAdmin(gymId)
+        && incoming().ownerUid == existing().ownerUid
+        && isStr(incoming().name, 2, 60)
+        && isHsl(incoming().brandPrimary)
+        && incoming().thresholdLow is int && incoming().thresholdModerate is int && incoming().thresholdPacked is int
+        && incoming().thresholdLow < incoming().thresholdModerate
+        && incoming().thresholdModerate < incoming().thresholdPacked
+        && incoming().geofenceRadiusM is number && incoming().geofenceRadiusM >= 25 && incoming().geofenceRadiusM <= 2000;
+
+      allow delete: if false;
+
+      // ---------- member directory ----------
+      // The shareable subset of users/{uid}. Mirrored by the client on every profile save.
+      match /memberProfiles/{memberId} {
+        allow get, list: if isSelfMember(gymId, memberId)
+          || isAdmin(gymId)
+          || (isMember(gymId) && existing().buddyOptIn == true && buddyOptedIn(gymId, uid()));
+        allow create: if signedIn() && uid() == memberId
+          && getAfter(userPath(uid())).data.gymId == gymId
+          && incoming().uid == memberId
+          && incoming().role == getAfter(userPath(uid())).data.role
+          && incoming().buddyOptIn is bool && incoming().leaderboardOptIn is bool;
+        allow update: if (isSelfMember(gymId, memberId)
+            && incoming().role == existing().role
+            && incoming().uid == existing().uid
+            && incoming().buddyOptIn is bool && incoming().leaderboardOptIn is bool)
+          || (isAdmin(gymId) && onlyChanges(['role']) && incoming().role in ['user', 'admin']);
+        allow delete: if false;
+      }
+
+      // username → uid claims, so usernames are unique per gym.
+      match /usernames/{username} {
+        allow get: if true; // availability check during signup, before the account exists
+        allow list: if false;
+        allow create: if signedIn() && incoming().uid == uid()
+          && username.matches('^[a-z0-9_.]{3,20}$')
+          && getAfter(userPath(uid())).data.gymId == gymId;
+        allow delete: if signedIn() && existing().uid == uid();
+        allow update: if false;
+      }
+
+      // ---------- schedule ----------
+      match /classes/{classId} {
+        allow read: if isMember(gymId);
+        allow create, update: if isAdmin(gymId)
+          && isStr(incoming().name, 2, 60)
+          && incoming().day in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+          && isTime(incoming().time)
+          && incoming().capacity is int && incoming().capacity >= 1 && incoming().capacity <= 500
+          && incoming().durationMin is int && incoming().durationMin >= 5 && incoming().durationMin <= 300;
+        allow delete: if isAdmin(gymId);
+      }
+
+      match /trainers/{trainerId} {
+        allow read: if isMember(gymId);
+        allow create, update: if isAdmin(gymId) && isStr(incoming().name, 2, 60) && incoming().specialties is list;
+        allow delete: if isAdmin(gymId);
+      }
+
+      // Per-occurrence capacity + waitlist. Client-trust: any member may move the
+      // counters by at most one seat per write, never past capacity.
+      match /classSlots/{slotId} {
+        allow read: if isMember(gymId);
+        allow create: if isMember(gymId)
+          && slotId == incoming().classId + '_' + incoming().date
+          && isDateKey(incoming().date)
+          && exists(/databases/$(database)/documents/gyms/$(gymId)/classes/$(incoming().classId))
+          && incoming().capacity == get(/databases/$(database)/documents/gyms/$(gymId)/classes/$(incoming().classId)).data.capacity
+          && incoming().confirmedCount in [0, 1]
+          && incoming().waitlistOrder is list && incoming().waitlistOrder.size() <= 1;
+        allow update: if isAdmin(gymId) || (isMember(gymId)
+          && onlyChanges(['confirmedCount', 'waitlistOrder'])
+          && isNonNegInt(incoming().confirmedCount)
+          && incoming().confirmedCount <= existing().capacity
+          && incoming().confirmedCount - existing().confirmedCount <= 1
+          && existing().confirmedCount - incoming().confirmedCount <= 1
+          && incoming().waitlistOrder is list
+          && incoming().waitlistOrder.size() <= 300);
+        allow delete: if isAdmin(gymId);
+      }
+
+      // Deterministic ID {slotId}_{uid}: one booking per member per occurrence.
+      match /classBookings/{bookingId} {
+        allow get, list: if (signedIn() && existing().userId == uid() && isMember(gymId)) || isAdmin(gymId);
+        allow create: if isSelfMember(gymId, incoming().userId)
+          && bookingId == incoming().slotId + '_' + uid()
+          && incoming().status in ['confirmed', 'waitlisted']
+          && existsAfter(/databases/$(database)/documents/gyms/$(gymId)/classSlots/$(incoming().slotId));
+        allow update: if isAdmin(gymId)
+          // the member themself: cancel, or re-book a previously cancelled seat
+          || (isSelfMember(gymId, existing().userId)
+              && incoming().userId == existing().userId
+              && incoming().slotId == existing().slotId
+              && incoming().status in ['confirmed', 'waitlisted', 'cancelled'])
+          // another member's client promoting this booking off the waitlist, inside the
+          // same transaction that removes it from the slot's waitlistOrder
+          || (isMember(gymId)
+              && existing().status == 'waitlisted'
+              && incoming().status == 'confirmed'
+              && onlyChanges(['status', 'waitlistPosition', 'updatedAt'])
+              && !(existing().userId in getAfter(/databases/$(database)/documents/gyms/$(gymId)/classSlots/$(existing().slotId)).data.waitlistOrder));
+        allow delete: if isAdmin(gymId);
+      }
+
+      match /trainerBookings/{bookingId} {
+        allow get, list: if (signedIn() && existing().userId == uid() && isMember(gymId)) || isAdmin(gymId);
+        allow create: if isSelfMember(gymId, incoming().userId)
+          && incoming().status == 'pending'
+          && isDateKey(incoming().requestedDate) && isTime(incoming().requestedTime)
+          && isStr(incoming().note, 0, 500);
+        allow update: if (isAdmin(gymId) && onlyChanges(['status', 'decidedAt']) && incoming().status in ['accepted', 'declined'])
+          || (isSelfMember(gymId, existing().userId) && onlyChanges(['status']) && incoming().status == 'cancelled');
+        allow delete: if isAdmin(gymId);
+      }
+
+      // ---------- presence & check-ins ----------
+      // Presence docs hold no names, so every member may read them to count occupancy.
+      match /userPresence/{memberId} {
+        allow read: if isMember(gymId);
+        allow create, update: if isSelfMember(gymId, memberId)
+          && incoming().keys().hasOnly(['isActive', 'lastSeen', 'lastCheckInAt', 'source'])
+          && incoming().isActive is bool
+          && incoming().source in ['geo', 'manual'];
+        allow delete: if isSelfMember(gymId, memberId);
+      }
+
+      match /checkIns/{checkInId} {
+        allow read: if isAdmin(gymId);
+        allow create: if isSelfMember(gymId, incoming().uid)
+          && incoming().source in ['geo', 'manual']
+          && isDateKey(incoming().dateKey)
+          && incoming().hourOfDay is int && incoming().hourOfDay >= 0 && incoming().hourOfDay <= 23;
+        allow update, delete: if false;
+      }
+
+      // Hourly rollup per day. Each write may add exactly one check-in.
+      match /checkInStats/{dayKey} {
+        allow read: if isMember(gymId);
+        allow create: if isMember(gymId) && isDateKey(dayKey) && incoming().dateKey == dayKey
+          && incoming().total == 1 && incoming().hours is map && incoming().hours.size() == 1;
+        allow update: if isMember(gymId) && onlyChanges(['total', 'hours'])
+          && incoming().total == existing().total + 1
+          && incoming().hours is map && incoming().hours.size() <= 24;
+        allow delete: if false;
+      }
+
+      // One doc per member per day ({uid}_{YYYY-MM-DD}) — idempotent first check-in.
+      match /gymVisits/{visitId} {
+        allow get, list: if (signedIn() && existing().uid == uid() && isMember(gymId)) || isAdmin(gymId);
+        allow create: if isSelfMember(gymId, incoming().uid)
+          && isDateKey(incoming().dateKey)
+          && visitId == uid() + '_' + incoming().dateKey;
+        allow update, delete: if false;
+      }
+
+      // ---------- gamification ----------
+      match /gamification/{memberId} {
+        allow read: if selfAdminOrBuddy(gymId, memberId);
+        allow create: if isSelfMember(gymId, memberId)
+          && incoming().totalVisits in [0, 1] && incoming().currentStreakDays in [0, 1];
+        allow update: if isSelfMember(gymId, memberId)
+          && isNonNegInt(incoming().totalVisits)
+          && incoming().totalVisits >= existing().totalVisits
+          && incoming().totalVisits <= existing().totalVisits + 1
+          && isNonNegInt(incoming().currentStreakDays)
+          && incoming().currentStreakDays <= existing().currentStreakDays + 1
+          && isNonNegInt(incoming().longestStreakDays)
+          && incoming().longestStreakDays >= existing().longestStreakDays;
+        allow delete: if false;
+      }
+
+      match /personalRecords/{memberId}/records/{recordId} {
+        allow read: if selfAdminOrBuddy(gymId, memberId);
+        allow create, update: if isSelfMember(gymId, memberId)
+          && isStr(incoming().exercise, 2, 60)
+          && incoming().value is number && incoming().value > 0 && incoming().value < 2000
+          && incoming().unit in ['kg', 'lb']
+          && isDateKey(incoming().date);
+        allow delete: if isSelfMember(gymId, memberId);
+      }
+
+      match /userBadges/{memberId}/earned/{badgeId} {
+        allow read: if selfAdminOrBuddy(gymId, memberId);
+        allow create: if isSelfMember(gymId, memberId)
+          && badgeId in ['first_visit', 'visits_5', 'visits_25', 'visits_100', 'streak_7', 'streak_30', 'pr_setter', 'pr_grinder']
+          && incoming().earnedAt == request.time;
+        allow update, delete: if false;
+      }
+
+      // Opt-in only: you can only write your own entry while leaderboardOptIn is on.
+      match /leaderboard/{monthId}/entries/{memberId} {
+        allow read: if isMember(gymId);
+        allow create, update: if isSelfMember(gymId, memberId)
+          && getAfter(profilePath(gymId, memberId)).data.leaderboardOptIn == true
+          && monthId.matches('^[0-9]{4}-[0-9]{2}$')
+          && incoming().uid == memberId
+          && isNonNegInt(incoming().visits) && incoming().visits <= 31
+          && isNonNegInt(incoming().streak);
+        allow delete: if isSelfMember(gymId, memberId);
+      }
+
+      // ---------- notices ----------
+      match /notices/{noticeId} {
+        allow read: if isMember(gymId);
+        allow create: if isAdmin(gymId)
+          && isStr(incoming().title, 4, 120)
+          && isStr(incoming().body, 10, 4000)
+          && incoming().authorUid == uid()
+          && incoming().createdAt == request.time;
+        allow update: if isAdmin(gymId) && onlyChanges(['title', 'body', 'tag']);
+        allow delete: if isAdmin(gymId);
+      }
+
+      // ---------- private per-member logs ----------
+      match /workoutLogs/{memberId}/logs/{logId} {
+        allow read, delete: if isSelfMember(gymId, memberId);
+        allow create, update: if isSelfMember(gymId, memberId)
+          && isStr(incoming().type, 1, 60)
+          && incoming().durationMin is int && incoming().durationMin > 0 && incoming().durationMin <= 600
+          && isDateKey(incoming().date)
+          && incoming().source in ['manual', 'apple_health', 'google_fit', 'strava', 'garmin'];
+      }
+
+      match /bodyMetrics/{memberId}/entries/{entryId} {
+        allow read, delete: if isSelfMember(gymId, memberId);
+        allow create, update: if isSelfMember(gymId, memberId)
+          && incoming().weight is number && incoming().weight > 0 && incoming().weight < 700
+          && incoming().unit in ['kg', 'lb']
+          && isDateKey(incoming().date)
+          && incoming().source in ['manual', 'apple_health', 'google_fit', 'strava', 'garmin'];
+      }
+
+      // AI plans: written by /api/coach using the member's own ID token. Append-only,
+      // so the server-side rate limit (latest plan's createdAt) can't be reset by deleting.
+      match /workoutPlans/{memberId}/plans/{planId} {
+        allow read: if isSelfMember(gymId, memberId);
+        allow create: if isSelfMember(gymId, memberId)
+          && incoming().createdAt == request.time
+          && incoming().days is list && incoming().days.size() <= 7;
+        allow update, delete: if false;
+      }
+
+      // ---------- Gym Buddy ----------
+      // Deterministic ID {from}_{to}. Both sides must be opted in.
+      match /buddySwipes/{swipeId} {
+        allow get, list: if isMember(gymId) && (existing().fromUserId == uid() || existing().toUserId == uid());
+        allow create, update: if isSelfMember(gymId, incoming().fromUserId)
+          && swipeId == uid() + '_' + incoming().toUserId
+          && incoming().toUserId != uid()
+          && incoming().action in ['like', 'pass']
+          && buddyOptedIn(gymId, uid())
+          && buddyOptedIn(gymId, incoming().toUserId);
+        allow delete: if false;
+      }
+
+      // Match ID = the two uids sorted and joined with "_". Creating one requires
+      // both swipes to exist as likes — this is verified here, not trusted from the client.
+      match /buddyMatches/{matchId} {
+        function swipePath(a, b) { return /databases/$(database)/documents/gyms/$(gymId)/buddySwipes/$(a + '_' + b); }
+        function isLike(a, b) { return exists(swipePath(a, b)) && get(swipePath(a, b)).data.action == 'like'; }
+
+        allow get, list: if isMember(gymId) && uid() in existing().members;
+        allow create: if isMember(gymId)
+          && incoming().members is list && incoming().members.size() == 2
+          && uid() in incoming().members
+          && incoming().members[0] < incoming().members[1]
+          && matchId == incoming().members[0] + '_' + incoming().members[1]
+          && isLike(incoming().members[0], incoming().members[1])
+          && isLike(incoming().members[1], incoming().members[0]);
+        allow update: if isMember(gymId) && uid() in existing().members
+          && onlyChanges(['lastMessage', 'lastMessageAt', 'lastSenderId'])
+          && incoming().lastSenderId == uid();
+        allow delete: if false;
+
+        match /messages/{messageId} {
+          function isMatchMember() { return isMember(gymId) && uid() in get(/databases/$(database)/documents/gyms/$(gymId)/buddyMatches/$(matchId)).data.members; }
+          allow read: if isMatchMember();
+          allow create: if isMatchMember()
+            && incoming().senderId == uid()
+            && isStr(incoming().text, 1, 1000)
+            && incoming().createdAt == request.time;
+          allow update, delete: if false;
+        }
+      }
+    }
+
+    // ---------- users (private) ----------
+    match /users/{userId} {
+      function sameGymAdmin() {
+        return signedIn() && exists(userPath(uid())) && me().role == 'admin' && me().gymId == existing().gymId;
+      }
+
+      allow get, list: if (signedIn() && uid() == userId) || sameGymAdmin();
+
+      // Role is never client-chosen: 'user' always, or 'admin' only for the account that
+      // creates the gym in the same batch (gyms/{gymId}.ownerUid == this uid).
+      allow create: if signedIn() && uid() == userId
+        && incoming().uid == userId
+        && incoming().email == request.auth.token.email
+        && isStr(incoming().firstName, 1, 40)
+        && isStr(incoming().username, 3, 20)
+        && incoming().leaderboardOptIn is bool
+        && incoming().buddyOptIn is bool
+        && incoming().termsAcceptedAt == request.time
+        && existsAfter(gymPath(incoming().gymId))
+        && (incoming().role == 'user'
+            || (incoming().role == 'admin' && getAfter(gymPath(incoming().gymId)).data.ownerUid == userId));
+
+      // Members edit their own profile, never role / gymId / email / createdAt.
+      allow update: if (signedIn() && uid() == userId
+          && !changedKeys().hasAny(['role', 'gymId', 'uid', 'email', 'createdAt', 'termsAcceptedAt'])
+          && incoming().leaderboardOptIn is bool && incoming().buddyOptIn is bool)
+        // Admins may promote/demote members of their own gym (but not the gym owner).
+        || (sameGymAdmin() && onlyChanges(['role']) && incoming().role in ['user', 'admin']
+            && get(gymPath(existing().gymId)).data.ownerUid != userId);
+
+      allow delete: if false;
+
+      match /notifications/{notificationId} {
+        allow read, delete: if signedIn() && uid() == userId;
+        allow update: if signedIn() && uid() == userId && onlyChanges(['readAt']);
+        // Cross-user: written by whichever member triggers the event (waitlist promotion,
+        // buddy match, admin decision). Sender must belong to the recipient's gym.
+        allow create: if signedIn()
+          && exists(userPath(uid())) && exists(userPath(userId))
+          && me().gymId == get(userPath(userId)).data.gymId
+          && incoming().type in ['waitlist_promoted', 'buddy_match', 'buddy_message', 'trainer_booking', 'notice']
+          && isStr(incoming().title, 1, 120)
+          && isStr(incoming().body, 0, 500)
+          && incoming().readAt == null
+          && incoming().createdAt == request.time;
+      }
+
+      match /noticeReads/{noticeId} {
+        allow read, write: if signedIn() && uid() == userId;
+      }
+    }
+  }
+}
