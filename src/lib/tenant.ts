@@ -29,3 +29,6 @@ export function resolveGymId(host: string | null | undefined, cookieValue: strin
   if (cookieValue && isValidSlug(cookieValue)) return { gymId: cookieValue, source: "cookie" as const };
   return { gymId: defaultGymId, source: "default" as const };
 }
+
+/** UX-only hint cookie so server pages can skip marketing for signed-in members. Grants nothing. */
+export const AUTH_HINT_COOKIE = "gy_authed";

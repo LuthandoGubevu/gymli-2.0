@@ -11,6 +11,7 @@ export default {
   content: ["./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
+      screens: { nav: "820px" },
       colors: {
         background: c("background"),
         foreground: c("foreground"),

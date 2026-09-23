@@ -143,6 +143,18 @@ describe("class booking + waitlist", () => {
   });
 });
 
+describe("reading deterministic docs before they exist", () => {
+  it("own booking / visit / reverse swipe are readable (as not-found), others' aren't", async () => {
+    await assertSucceeds(getDoc(doc(as("alice"), "gyms", G, "classBookings", "hiit_2026-09-24_alice")));
+    await assertFails(getDoc(doc(as("alice"), "gyms", G, "classBookings", "hiit_2026-09-24_bob")));
+    await assertSucceeds(getDoc(doc(as("alice"), "gyms", G, "gymVisits", "alice_2026-09-23")));
+    await assertFails(getDoc(doc(as("alice"), "gyms", G, "gymVisits", "bob_2026-09-23")));
+    await assertSucceeds(getDoc(doc(as("alice"), "gyms", G, "buddySwipes", "bob_alice")));
+    await assertFails(getDoc(doc(as("alice"), "gyms", G, "buddySwipes", "bob_carol")));
+    await assertFails(getDoc(doc(as("mallory"), "gyms", G, "gymVisits", "mallory_2026-09-23")));
+  });
+});
+
 describe("check-ins & gamification", () => {
   it("allows exactly one visit doc per member per day", async () => {
     const db = as("alice");

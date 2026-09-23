@@ -72,7 +72,7 @@ export async function listDocuments(path: string, idToken: string, pageSize = 50
   if (res.status === 404) return [];
   if (!res.ok) throw new Error(`Firestore LIST ${path} failed: ${res.status}`);
   const json = (await res.json()) as { documents?: { name: string; fields?: Record<string, FsValue> }[] };
-  return (json.documents ?? []).map((d) => ({ id: d.name.split("/").pop()!, ...decodeFields(d.fields ?? {}) }));
+  return (json.documents ?? []).map((d) => ({ id: d.name.split("/").pop()!, ...decodeFields(d.fields ?? {}) }) as Record<string, unknown> & { id: string });
 }
 
 /** Creates a document with an auto ID, as the calling user. `serverTimeFields` are set to request.time. */
@@ -91,4 +91,19 @@ export async function createDocument(collectionPath: string, data: Record<string
   const res = await fetch(`${base().replace(/\/documents$/, "/documents:commit")}?key=${firebaseConfig.apiKey}`, { method: "POST", headers: headers(idToken), body: JSON.stringify(body) });
   if (!res.ok) throw new Error(`Firestore commit failed: ${res.status} ${await res.text()}`);
   return docId;
+}
+
+/** Runs a structured query on a collection under `parentPath` (e.g. "gyms/x/workoutPlans/uid"). */
+export async function runQuery(parentPath: string, collectionId: string, idToken: string, opts: { orderBy?: string; direction?: "ASCENDING" | "DESCENDING"; limit?: number } = {}) {
+  const body = {
+    structuredQuery: {
+      from: [{ collectionId }],
+      ...(opts.orderBy ? { orderBy: [{ field: { fieldPath: opts.orderBy }, direction: opts.direction ?? "DESCENDING" }] } : {}),
+      ...(opts.limit ? { limit: opts.limit } : {}),
+    },
+  };
+  const res = await fetch(`${base()}/${parentPath}:runQuery?key=${firebaseConfig.apiKey}`, { method: "POST", headers: headers(idToken), body: JSON.stringify(body), cache: "no-store" });
+  if (!res.ok) throw new Error(`Firestore runQuery ${parentPath}/${collectionId} failed: ${res.status}`);
+  const rows = (await res.json()) as { document?: { name: string; fields?: Record<string, FsValue> } }[];
+  return rows.filter((r) => r.document).map((r) => ({ id: r.document!.name.split("/").pop()!, ...decodeFields(r.document!.fields ?? {}) }) as Record<string, unknown> & { id: string });
 }

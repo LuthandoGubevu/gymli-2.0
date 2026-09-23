@@ -151,7 +151,10 @@ service cloud.firestore {
 
       // Deterministic ID {slotId}_{uid}: one booking per member per occurrence.
       match /classBookings/{bookingId} {
-        allow get, list: if (signedIn() && existing().userId == uid() && isMember(gymId)) || isAdmin(gymId);
+        // get is keyed on the deterministic ID so a member can read their own booking
+        // before it exists (inside the booking transaction).
+        allow get: if (isMember(gymId) && bookingId.matches('^.+_' + uid() + '$')) || isAdmin(gymId);
+        allow list: if (signedIn() && existing().userId == uid() && isMember(gymId)) || isAdmin(gymId);
         allow create: if isSelfMember(gymId, incoming().userId)
           && bookingId == incoming().slotId + '_' + uid()
           && incoming().status in ['confirmed', 'waitlisted']
@@ -216,7 +219,8 @@ service cloud.firestore {
 
       // One doc per member per day ({uid}_{YYYY-MM-DD}) — idempotent first check-in.
       match /gymVisits/{visitId} {
-        allow get, list: if (signedIn() && existing().uid == uid() && isMember(gymId)) || isAdmin(gymId);
+        allow get: if (isMember(gymId) && visitId.matches('^' + uid() + '_[0-9-]+$')) || isAdmin(gymId);
+        allow list: if (signedIn() && existing().uid == uid() && isMember(gymId)) || isAdmin(gymId);
         allow create: if isSelfMember(gymId, incoming().uid)
           && isDateKey(incoming().dateKey)
           && visitId == uid() + '_' + incoming().dateKey;
@@ -313,7 +317,8 @@ service cloud.firestore {
       // ---------- Gym Buddy ----------
       // Deterministic ID {from}_{to}. Both sides must be opted in.
       match /buddySwipes/{swipeId} {
-        allow get, list: if isMember(gymId) && (existing().fromUserId == uid() || existing().toUserId == uid());
+        allow get: if isMember(gymId) && (swipeId.matches('^' + uid() + '_.+$') || swipeId.matches('^.+_' + uid() + '$'));
+        allow list: if isMember(gymId) && (existing().fromUserId == uid() || existing().toUserId == uid());
         allow create, update: if isSelfMember(gymId, incoming().fromUserId)
           && swipeId == uid() + '_' + incoming().toUserId
           && incoming().toUserId != uid()
