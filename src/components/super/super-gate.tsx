@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { LogOut, MailCheck, Moon, RefreshCw, ShieldAlert, Sun } from "lucide-react";
+import { Copy, LogOut, MailCheck, Moon, RefreshCw, Sun } from "lucide-react";
 import { useAuth } from "@/components/providers/auth";
 import { Toaster } from "@/components/providers/toaster";
 import { Logo } from "@/components/icons";
@@ -15,6 +15,7 @@ import { Field, FieldError, errProps } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { signIn } from "@/lib/actions/auth";
 import { createPlatformAccount, resendVerification } from "@/lib/actions/platform";
+import { firebaseConfig, useEmulators } from "@/lib/env";
 import { isSuperAdminEmail } from "@/lib/platform";
 import { useTheme } from "@/lib/theme";
 import { toast, toastError } from "@/lib/toast";
@@ -25,8 +26,7 @@ export function SuperGate({ children }: { children: React.ReactNode }) {
   const { status, user, isSuper } = useAuth();
   if (status === "loading") return <Centered><Spinner label="Loading" /></Centered>;
   if (!user) return <Centered><SuperSignIn /></Centered>;
-  if (!isSuperAdminEmail(user.email)) return <Centered><NotAllowed /></Centered>;
-  if (!isSuper) return <Centered><VerifyEmail /></Centered>;
+  if (!isSuper) return <Centered><FinishSetup /></Centered>;
   return <SuperShell>{children}</SuperShell>;
 }
 
@@ -57,7 +57,7 @@ function SuperSignIn() {
       if (mode === "create") {
         if (!isSuperAdminEmail(v.email)) { setFormError("Platform accounts are only for the Gymli team. Members sign up from their gym's page."); return; }
         await createPlatformAccount(v.email, v.password);
-        toast("Account created — check your inbox for the verification link", "check", "success");
+        toast("Account created — one more step to turn on platform access", "check", "success");
       } else {
         await signIn(v.email, v.password);
       }
@@ -82,34 +82,49 @@ function SuperSignIn() {
   );
 }
 
-function NotAllowed() {
-  const { signOut, user } = useAuth();
-  return (
-    <>
-      <div className="flex items-start gap-3 rounded-lg border soft-destructive p-4"><ShieldAlert size={20} className="mt-0.5 flex-none" aria-hidden /><span className="text-sm">This area is for the Gymli team. <span className="font-mono">{user?.email}</span> isn&apos;t a platform account.</span></div>
-      <div className="flex gap-2"><Button asChild variant="outline"><Link href="/app">Go to the app</Link></Button><Button variant="ghost" onClick={() => signOut()}><LogOut size={16} aria-hidden />Sign out</Button></div>
-    </>
-  );
-}
-
-function VerifyEmail() {
+function FinishSetup() {
   const { user, refreshUser, signOut } = useAuth();
   const [busy, setBusy] = useState(false);
+  const uid = user?.uid ?? "";
+  const listed = isSuperAdminEmail(user?.email);
+  const consoleUrl = firebaseConfig.projectId && !useEmulators
+    ? `https://console.firebase.google.com/project/${firebaseConfig.projectId}/firestore/databases/-default-/data`
+    : "";
   return (
     <>
       <div className="flex flex-col gap-2">
         <span className="eyebrow text-accent-ink">One more step</span>
-        <h1 className="font-display text-3xl font-bold leading-tight tracking-[-0.03em]">Verify your email</h1>
-        <p className="text-[15px] leading-normal text-muted-foreground">Platform access switches on once <span className="font-mono text-foreground">{user?.email}</span> is verified. Click the link we emailed you, then come back here.</p>
+        <h1 className="font-display text-3xl font-bold leading-tight tracking-[-0.03em]">Finish setup</h1>
+        <p className="text-[15px] leading-normal text-muted-foreground">
+          <span className="font-mono text-foreground">{user?.email}</span> isn&apos;t a platform admin yet. Platform access is granted in the Firebase console, so only someone who owns the Firebase project can turn it on. No email needed.
+        </p>
       </div>
+      <div className="flex flex-col gap-2">
+        <span className="text-sm font-semibold">Your user ID</span>
+        <div className="flex items-center gap-2">
+          <code data-testid="platform-uid" className="min-w-0 flex-1 truncate rounded-md border border-border bg-elevated px-3 py-2.5 font-mono text-sm">{uid}</code>
+          <Button variant="outline" aria-label="Copy user ID" onClick={() => navigator.clipboard.writeText(uid).then(() => toast("User ID copied", "check", "success"), () => toastError("Copy failed — select the ID and copy it by hand"))}><Copy size={16} aria-hidden />Copy</Button>
+        </div>
+      </div>
+      <ol className="flex list-decimal flex-col gap-1.5 pl-5 text-sm leading-normal text-muted-foreground">
+        <li>Open {consoleUrl ? <a href={consoleUrl} target="_blank" rel="noreferrer" className="font-medium text-accent-ink">Firebase console → Firestore Database</a> : <span className="text-foreground">Firebase console → Firestore Database</span>}.</li>
+        <li>Click <span className="text-foreground">Start collection</span> (or open it if it exists) with the ID <code className="font-mono text-foreground">platformAdmins</code>.</li>
+        <li>Document ID: paste the user ID above.</li>
+        <li>Add a field <code className="font-mono text-foreground">email</code> = <code className="font-mono text-foreground">{user?.email}</code>, then Save.</li>
+      </ol>
+      <p className="text-sm text-muted-foreground">This page opens the platform console by itself as soon as the document exists.</p>
       <div className="flex flex-wrap gap-2">
-        <Button disabled={busy} onClick={async () => {
-          setBusy(true);
-          try { await refreshUser(); } catch (e) { toastError(errorMessage(e)); } finally { setBusy(false); }
-        }}><RefreshCw size={16} aria-hidden className={busy ? "animate-spin" : undefined} />I&apos;ve verified — continue</Button>
-        <Button variant="outline" onClick={() => user && resendVerification(user).then(() => toast("Verification email sent", "check", "success")).catch((e) => toastError(errorMessage(e)))}><MailCheck size={16} aria-hidden />Resend link</Button>
+        {listed ? (
+          <>
+            <Button variant="outline" disabled={busy} onClick={async () => {
+              setBusy(true);
+              try { await refreshUser(); } catch (e) { toastError(errorMessage(e)); } finally { setBusy(false); }
+            }}><RefreshCw size={16} aria-hidden className={busy ? "animate-spin" : undefined} />I verified my email instead</Button>
+            <Button variant="ghost" onClick={() => user && resendVerification(user).then(() => toast("Verification email sent", "check", "success")).catch((e) => toastError(errorMessage(e)))}><MailCheck size={16} aria-hidden />Resend verification email</Button>
+          </>
+        ) : <Button asChild variant="outline"><Link href="/app">Go to the app</Link></Button>}
+        <Button variant="ghost" onClick={() => signOut()}><LogOut size={16} aria-hidden />Sign out</Button>
       </div>
-      <Button variant="ghost" className="self-start" onClick={() => signOut()}><LogOut size={16} aria-hidden />Sign out</Button>
     </>
   );
 }

@@ -187,7 +187,12 @@ await session("super", "lgubevu@gmail.com", async (page, s) => {
 });
 
 await session("intruder", "thandi@demo.gymli.app", async (page, s) => {
-  await s("regular members can't use the platform console", async () => { await page.goto(`${BASE}/super`); await page.getByText(/isn.t a platform account/).waitFor(); });
+  await s("regular members can't use the platform console", async () => {
+    await page.goto(`${BASE}/super`);
+    await page.getByRole("heading", { name: "Finish setup" }).waitFor();
+    if (!(await page.getByTestId("platform-uid").textContent())?.trim()) throw new Error("setup screen shows no user ID");
+    if (await page.getByText("All gyms").count()) throw new Error("member can see the platform console");
+  });
 });
 
 await session("mobile", "thandi@demo.gymli.app", async (page, s) => {

@@ -13,7 +13,7 @@ interface AuthCtx {
   status: AuthStatus;
   user: User | null;
   profile: UserProfile | null;
-  /** Verified platform super admin (see src/lib/platform.ts + firestore.rules). */
+  /** Platform super admin: a platformAdmins/{uid} doc, or the verified listed email (see firestore.rules). */
   isSuper: boolean;
   signOut: () => Promise<void>;
   /** Re-reads the Firebase user and forces a fresh ID token (e.g. after verifying email). */
@@ -33,16 +33,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = React.useState<User | null>(null);
   const [profile, setProfile] = React.useState<UserProfile | null>(null);
   const [status, setStatus] = React.useState<AuthStatus>(firebaseConfigured ? "loading" : "signedOut");
+  // uid whose platformAdmins doc exists (keyed so a stale value never leaks across accounts)
+  const [platformUid, setPlatformUid] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     let unsubProfile: (() => void) | undefined;
+    let unsubPlatform: (() => void) | undefined;
     if (!firebaseConfigured) return;
     const unsubAuth = onAuthStateChanged(getFirebaseAuth(), (u) => {
         unsubProfile?.();
+        unsubPlatform?.();
+        unsubPlatform = undefined;
         setUser(u);
         setAuthHint(!!u);
         if (!u) { setProfile(null); setStatus("signedOut"); return; }
         setStatus("loading");
+        // Granted by hand in the Firebase console; live, so /super unlocks without a reload.
+        unsubPlatform = onSnapshot(
+          doc(getDb(), "platformAdmins", u.uid),
+          (snap) => setPlatformUid(snap.exists() ? u.uid : null),
+          () => setPlatformUid(null),
+        );
         unsubProfile = onSnapshot(
           doc(getDb(), "users", u.uid),
           (snap) => {
@@ -52,7 +63,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           () => { setProfile(null); setStatus("noProfile"); },
         );
       });
-    return () => { unsubProfile?.(); unsubAuth(); };
+    return () => { unsubProfile?.(); unsubPlatform?.(); unsubAuth(); };
   }, []);
 
   const [, bump] = React.useReducer((n: number) => n + 1, 0);
@@ -69,7 +80,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     bump();
   }, []);
 
-  const isSuper = isSuperAdmin(user);
+  const isSuper = (!!user && platformUid === user.uid) || isSuperAdmin(user);
   const value = React.useMemo(() => ({ status, user, profile, isSuper, signOut, refreshUser }), [status, user, profile, isSuper, signOut, refreshUser]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

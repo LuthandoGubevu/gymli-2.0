@@ -20,10 +20,14 @@ rules_version = '2';
 // Moving these to Cloud Functions later only requires tightening the rules
 // below — the data shapes don't change.
 //
-// PLATFORM SUPER ADMIN: the emails in superAdmins() (keep in sync with
-// src/lib/platform.ts — a unit test checks this) can manage every gym, and are the
-// only accounts that can create or suspend gyms. Only honoured once the address is
-// verified (token.email_verified), so nobody can claim it by just signing up with it.
+// PLATFORM SUPER ADMIN — can manage every gym, and is the only account that can
+// create or suspend gyms. Two ways in:
+//   1. A document platformAdmins/{uid}, added by hand in the Firebase console.
+//      Clients can never write that collection, so only someone with access to
+//      the Firebase project can grant it. No email needed.
+//   2. An email in superAdmins() (keep in sync with src/lib/platform.ts — a unit
+//      test checks this), honoured only once verified (token.email_verified), so
+//      nobody can claim it by just signing up with the address.
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -42,9 +46,10 @@ service cloud.firestore {
 
     function superAdmins() { return ['lgubevu@gmail.com']; }
     function isSuper() {
-      return signedIn()
-        && request.auth.token.get('email_verified', false) == true
-        && request.auth.token.get('email', '').lower() in superAdmins();
+      return signedIn() && (
+        exists(/databases/$(database)/documents/platformAdmins/$(uid()))
+        || (request.auth.token.get('email_verified', false) == true
+            && request.auth.token.get('email', '').lower() in superAdmins()));
     }
 
     function me() { return get(userPath(uid())).data; }
@@ -65,6 +70,14 @@ service cloud.firestore {
     function isTime(v) { return v is string && v.matches('^[0-2][0-9]:[0-5][0-9]$'); }
     function isNonNegInt(v) { return v is int && v >= 0; }
     function isHsl(v) { return v is string && v.matches('^[0-9]{1,3} [0-9]{1,3}% [0-9]{1,3}%$'); }
+
+    // ---------- platform admins ----------
+    // Granted only by hand in the Firebase console (console writes bypass rules).
+    // A signed-in user may check whether their OWN doc exists; nobody can list or write.
+    match /platformAdmins/{adminId} {
+      allow get: if signedIn() && uid() == adminId;
+      allow list, write: if false;
+    }
 
     // ---------- gyms (tenants) ----------
     match /gyms/{gymId} {

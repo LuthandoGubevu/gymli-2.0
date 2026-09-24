@@ -115,6 +115,32 @@ describe("platform super admin", () => {
   });
 });
 
+describe("platformAdmins (console-granted super admin, no email needed)", () => {
+  const grant = (uid: string) => env.withSecurityRulesDisabled(async (ctx) => { await setDoc(doc(ctx.firestore(), "platformAdmins", uid), { email: "anything@x.com" }); });
+  it("a platformAdmins doc makes an unverified account super admin", async () => {
+    await grant("granted");
+    const db = env.authenticatedContext("granted", { email: "someone@x.com", email_verified: false }).firestore();
+    await assertSucceeds(setDoc(doc(db, "gyms", "newgym"), gymDoc()));
+    await assertSucceeds(getDoc(doc(db, "users", "mallory")));
+    await assertSucceeds(updateDoc(doc(db, "gyms", G), { status: "suspended" }));
+  });
+  it("users read only their own doc; nobody lists", async () => {
+    await grant("granted");
+    await assertSucceeds(getDoc(doc(as("granted"), "platformAdmins", "granted")));
+    await assertSucceeds(getDoc(doc(as("alice"), "platformAdmins", "alice"))); // missing, but allowed to check
+    await assertFails(getDoc(doc(as("alice"), "platformAdmins", "granted")));
+    await assertFails(getDocs(collection(as("granted"), "platformAdmins")));
+    await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(), "platformAdmins", "granted")));
+  });
+  it("clients can never grant, edit or remove platform admin — not even an existing super admin", async () => {
+    await grant("granted");
+    await assertFails(setDoc(doc(as("alice"), "platformAdmins", "alice"), { email: "alice@x.com" }));
+    await assertFails(setDoc(doc(asSuper(), "platformAdmins", "alice"), { email: "alice@x.com" }));
+    await assertFails(setDoc(doc(as("granted"), "platformAdmins", "granted"), { email: "x" }));
+    await assertFails(deleteDoc(doc(as("granted"), "platformAdmins", "granted")));
+  });
+});
+
 describe("suspended gyms", () => {
   beforeEach(async () => {
     await env.withSecurityRulesDisabled(async (ctx) => { await updateDoc(doc(ctx.firestore(), "gyms", G), { status: "suspended" }); });

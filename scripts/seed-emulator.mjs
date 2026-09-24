@@ -229,7 +229,10 @@ async function main() {
   await db.collection(`gyms/${G}/trainerBookings`).add({ userId: buddyIds.lwazi, userName: "Lwazi Dube", trainerId: trainerSnap.docs[0].id, trainerName: trainerSnap.docs[0].data().name, requestedDate: addDays(today, 2), requestedTime: "07:00", note: "Want a technique check on my deadlift.", status: "pending", createdAt: FieldValue.serverTimestamp(), decidedAt: null });
 
   // Platform super admin (emulator only — pre-verified so /super works immediately).
-  const superUser = await auth.createUser({ email: "lgubevu@gmail.com", password: PASSWORD, emailVerified: true, displayName: "Gymli Platform" });
+  // Unverified on purpose: production grants platform access via platformAdmins/{uid}
+  // (added by hand in the Firebase console), not via email verification.
+  const superUser = await auth.createUser({ email: "lgubevu@gmail.com", password: PASSWORD, emailVerified: false, displayName: "Gymli Platform" });
+  await db.doc(`platformAdmins/${superUser.uid}`).set({ email: "lgubevu@gmail.com", grantedAt: Timestamp.now() });
   await db.doc(`users/${superUser.uid}`).set({ uid: superUser.uid, gymId: G, role: "admin", email: "lgubevu@gmail.com", firstName: "Gymli", lastName: "Platform", username: "gymli", fitnessGoals: [], bio: "", usualTrainingTime: "Varies", leaderboardOptIn: false, buddyOptIn: false, autoPresenceEnabled: false, photoURL: "", termsAcceptedAt: Timestamp.now(), createdAt: Timestamp.now() });
 
   console.log(`Done. Sign in with thandi@demo.gymli.app, admin@demo.gymli.app, or the super admin lgubevu@gmail.com (/super) — password ${PASSWORD}`);

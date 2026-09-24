@@ -57,7 +57,9 @@ export async function enterGymAsAdmin(user: User, profile: UserProfile | null, g
 /** First-time platform account (no gym needed). Sends the verification email. */
 export async function createPlatformAccount(email: string, password: string) {
   const cred = await createUserWithEmailAndPassword(getFirebaseAuth(), email.trim(), password);
-  await sendVerification(cred.user);
+  // Best effort: access is granted via platformAdmins/{uid} in the Firebase console,
+  // so a verification email that never arrives doesn't block setup.
+  await sendVerification(cred.user).catch((e) => console.warn("Verification email not sent:", e));
   return cred.user;
 }
 
