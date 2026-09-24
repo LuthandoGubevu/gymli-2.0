@@ -9,9 +9,11 @@ import { CelebrationProvider } from "@/components/providers/celebration";
 import { ServiceWorkerRegistrar } from "@/components/pwa/sw-register";
 import "./globals.css";
 
-const display = Space_Grotesk({ subsets: ["latin"], weight: ["500", "600", "700"], variable: "--font-display", display: "swap" });
-const sans = Geist({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-sans", display: "swap" });
-const mono = JetBrains_Mono({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-mono", display: "swap" });
+// preload: false — the landing page uses Helvetica, so preloading these on every page
+// triggers "preloaded but not used" warnings there. They still load via @font-face.
+const display = Space_Grotesk({ subsets: ["latin"], weight: ["500", "600", "700"], variable: "--font-display", display: "swap", preload: false });
+const sans = Geist({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-sans", display: "swap", preload: false });
+const mono = JetBrains_Mono({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-mono", display: "swap", preload: false });
 
 export async function generateMetadata(): Promise<Metadata> {
   const { gym, exists } = await getTenant();
