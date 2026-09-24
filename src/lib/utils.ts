@@ -39,6 +39,8 @@ export function errorMessage(e: unknown): string {
       "auth/weak-password": "Password must be at least 6 characters.",
       "auth/too-many-requests": "Too many attempts. Wait a minute and try again.",
       "auth/network-request-failed": "Network error — check your connection.",
+      "auth/operation-not-allowed": "Email/password sign-in isn't enabled for this Firebase project (Authentication → Sign-in method).",
+      "auth/unauthorized-continue-uri": "This site's domain isn't in Firebase's Authorized domains list (Authentication → Settings).",
       "permission-denied": "You don't have permission to do that.",
       unavailable: "You're offline — try again when you're back online.",
     };

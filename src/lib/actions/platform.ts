@@ -57,10 +57,29 @@ export async function enterGymAsAdmin(user: User, profile: UserProfile | null, g
 /** First-time platform account (no gym needed). Sends the verification email. */
 export async function createPlatformAccount(email: string, password: string) {
   const cred = await createUserWithEmailAndPassword(getFirebaseAuth(), email.trim(), password);
-  await sendEmailVerification(cred.user, { url: `${window.location.origin}/super` });
+  await sendVerification(cred.user);
   return cred.user;
 }
 
 export async function resendVerification(user: User) {
-  await sendEmailVerification(user, { url: `${window.location.origin}/super` });
+  await sendVerification(user);
+}
+
+/**
+ * Sends the verification email with a "continue to /super" link. If this site's domain
+ * isn't in Firebase → Authentication → Settings → Authorized domains, Firebase rejects
+ * the continue link — fall back to a plain verification email so setup never blocks.
+ */
+async function sendVerification(user: User) {
+  try {
+    await sendEmailVerification(user, { url: `${window.location.origin}/super` });
+  } catch (e) {
+    const code = (e as { code?: string }).code ?? "";
+    if (code === "auth/unauthorized-continue-uri" || code === "auth/invalid-continue-uri" || code === "auth/unauthorized-domain") {
+      console.warn(`Add ${window.location.hostname} to Firebase Authorized domains so the verification link returns to /super.`);
+      await sendEmailVerification(user);
+    } else {
+      throw e;
+    }
+  }
 }
