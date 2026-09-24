@@ -8,9 +8,26 @@ import { rankFor } from "@/lib/ranks";
 import { rankLeaderboard } from "@/lib/leaderboard";
 import { averageGrid, bestWindow } from "@/lib/forecast";
 import { rulesPlan } from "@/lib/coach";
+import { readFileSync } from "node:fs";
+import { SUPER_ADMIN_EMAILS, isSuperAdmin } from "@/lib/platform";
 
 vi.mock("@/lib/env", () => ({ rootDomain: "gymli.app", defaultGymId: "demo" }));
 const { resolveGymId, slugFromHost } = await import("@/lib/tenant");
+
+describe("platform super admin", () => {
+  it("the email list in firestore.rules matches src/lib/platform.ts", () => {
+    const rules = readFileSync("firestore.rules", "utf8");
+    const m = rules.match(/function superAdmins\(\) \{ return \[([^\]]*)\]; \}/);
+    expect(m, "superAdmins() not found in firestore.rules").toBeTruthy();
+    const fromRules = [...m![1].matchAll(/'([^']+)'/g)].map((x) => x[1]).sort();
+    expect(fromRules).toEqual([...SUPER_ADMIN_EMAILS].sort());
+  });
+  it("requires a verified address", () => {
+    expect(isSuperAdmin({ email: "LGubevu@gmail.com", emailVerified: true })).toBe(true);
+    expect(isSuperAdmin({ email: "lgubevu@gmail.com", emailVerified: false })).toBe(false);
+    expect(isSuperAdmin({ email: "someone@else.com", emailVerified: true })).toBe(false);
+  });
+});
 
 describe("streaks", () => {
   it("starts, extends, resets and is idempotent per day", () => {

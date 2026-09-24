@@ -37,6 +37,7 @@ async function session(name, email, fn, viewport = { width: 1280, height: 900 })
 }
 
 const dialog = (page) => page.getByRole("dialog");
+let waitlisted = null; // { tab, className } — the full class the member joined the waitlist for
 const dayTab = (page, n) => page.locator("[aria-label=Day] [role=tab]").nth(n);
 
 console.log(`E2E against ${BASE}`);
@@ -59,12 +60,21 @@ await session("member", "thandi@demo.gymli.app", async (page, s) => {
   });
   await s("book a class with spots", async () => {
     await page.goto(`${BASE}/app/classes`);
-    await dayTab(page, 1).click();
+    for (let t = 0; t < 7; t++) {
+      await dayTab(page, t).click();
+      if (await page.locator("button[aria-label^='Book ']").count()) break;
+    }
     await page.locator("button[aria-label^='Book ']").first().click();
     await dialog(page).getByText("Class booked").waitFor();
     await dialog(page).getByRole("button", { name: "Done" }).click();
   });
   await s("join a full class's waitlist", async () => {
+    for (let t = 0; t < 7 && !waitlisted; t++) {
+      await dayTab(page, t).click();
+      const btn = page.locator("button[aria-label$='Join waitlist']").first();
+      if (await btn.count()) waitlisted = { tab: t, className: (await btn.getAttribute("aria-label")).replace(/ is full\. Join waitlist$/, "") };
+    }
+    if (!waitlisted) throw new Error("no full class in the next 7 days");
     await page.locator("button[aria-label$='Join waitlist']").first().click();
     await page.getByText(/on the waitlist/).first().waitFor();
     await page.locator("button[aria-label*='Waitlist position']").first().waitFor();
@@ -108,8 +118,9 @@ await session("member", "thandi@demo.gymli.app", async (page, s) => {
 await session("promoter", "aisha@demo.gymli.app", async (page, s) => {
   await s("cancelling a full class promotes the waitlist", async () => {
     await page.goto(`${BASE}/app/classes`);
-    await dayTab(page, 1).click();
-    await page.locator("button[aria-label^='Booked for HIIT']").click();
+    if (!waitlisted) throw new Error("member step didn't join a waitlist");
+    await dayTab(page, waitlisted.tab).click();
+    await page.locator(`button[aria-label^='Booked for ${waitlisted.className}']`).click();
     await page.getByText(/next on the waitlist is in/).waitFor();
   });
 });
@@ -117,7 +128,7 @@ await session("promoter", "aisha@demo.gymli.app", async (page, s) => {
 await session("promoted", "naledi@demo.gymli.app", async (page, s) => {
   await s("promoted member is notified", async () => {
     await page.getByRole("button", { name: /Notifications, \d+ unread/ }).first().click();
-    await page.getByText(/You're in — HIIT/).waitFor();
+    await page.getByText(`You're in — ${waitlisted?.className}`).waitFor();
   });
 });
 
@@ -142,6 +153,41 @@ await session("admin", "admin@demo.gymli.app", async (page, s) => {
     await page.getByRole("button", { name: "Save class" }).click();
     await page.getByText("E2E Class").first().waitFor();
   });
+});
+
+await session("super", "lgubevu@gmail.com", async (page, s) => {
+  await s("platform console lists gyms", async () => { await page.goto(`${BASE}/super`); await page.getByText("All gyms").waitFor(); await page.getByText("Ironworks").first().waitFor(); });
+  await s("create a gym", async () => {
+    await page.getByRole("button", { name: "New gym" }).click();
+    await page.fill("#ng-name", "E2E Test Gym");
+    await page.getByRole("button", { name: "Create gym" }).click();
+    await page.getByText("E2E Test Gym").first().waitFor();
+  });
+  await s("suspend and reactivate it", async () => {
+    page.once("dialog", (d) => d.accept());
+    const row = page.locator("li", { hasText: "E2E Test Gym" });
+    await row.getByRole("button", { name: "Suspend" }).click();
+    await row.getByText("Suspended", { exact: true }).waitFor();
+    await row.getByRole("button", { name: "Reactivate" }).click();
+    await row.getByText("Active", { exact: true }).waitFor();
+  });
+  await s("open it as admin", async () => {
+    await page.locator("li", { hasText: "E2E Test Gym" }).getByRole("button", { name: "Open as admin" }).click();
+    await page.waitForURL(/\/app\/admin/, { timeout: 20000 });
+    await page.getByText("Today at the gym").waitFor();
+    await page.goto(`${BASE}/app/admin/settings`);
+    await page.getByRole("heading", { name: "E2E Test Gym" }).waitFor();
+  });
+  await s("switch back to Ironworks", async () => {
+    await page.goto(`${BASE}/super`);
+    await page.locator("li", { hasText: "Ironworks" }).getByRole("button", { name: "Open as admin" }).click();
+    await page.waitForURL(/\/app\/admin/, { timeout: 20000 });
+    await page.getByRole("heading", { name: "Today at the gym" }).waitFor();
+  });
+});
+
+await session("intruder", "thandi@demo.gymli.app", async (page, s) => {
+  await s("regular members can't use the platform console", async () => { await page.goto(`${BASE}/super`); await page.getByText(/isn.t a platform account/).waitFor(); });
 });
 
 await session("mobile", "thandi@demo.gymli.app", async (page, s) => {

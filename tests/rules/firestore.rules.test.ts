@@ -65,25 +65,67 @@ describe("users", () => {
   });
 });
 
-describe("gym onboarding", () => {
-  it("creates a gym + owner admin atomically", async () => {
+const SUPER = "lgubevu@gmail.com";
+const asSuper = (verified = true, uid = "platform") => env.authenticatedContext(uid, { email: SUPER, email_verified: verified }).firestore();
+const gymDoc = (over: Record<string, unknown> = {}) => ({ name: "New Gym", ownerUid: "", brandPrimary: "200 80% 50%", status: "active", thresholdLow: 20, thresholdModerate: 50, thresholdPacked: 80, geofenceRadiusM: 100, ...over });
+
+describe("gym creation & settings", () => {
+  it("nobody but the super admin can create a gym", async () => {
     const db = as("founder");
     const b = writeBatch(db);
     b.set(doc(db, "gyms", "newgym"), { name: "New Gym", ownerUid: "founder", brandPrimary: "200 80% 50%" });
     b.set(doc(db, "users", "founder"), { uid: "founder", gymId: "newgym", role: "admin", firstName: "F", username: "founder", email: "founder@x.com", leaderboardOptIn: false, buddyOptIn: false, termsAcceptedAt: serverTimestamp() });
-    b.set(doc(db, "gyms", "newgym", "memberProfiles", "founder"), { uid: "founder", role: "admin", buddyOptIn: false, leaderboardOptIn: false });
-    b.set(doc(db, "gyms", "newgym", "usernames", "founder"), { uid: "founder" });
-    await assertSucceeds(b.commit());
+    await assertFails(b.commit());
+    await assertFails(setDoc(doc(as("alice"), "gyms", "alicegym"), gymDoc()));
+    await assertFails(setDoc(doc(as("owner"), "gyms", "ownergym"), gymDoc()));
   });
-  it("won't let an existing member become admin of a new gym", async () => {
-    const db = as("alice");
-    await assertFails(setDoc(doc(db, "gyms", "alicegym"), { name: "Mine", ownerUid: "alice", brandPrimary: "200 80% 50%" }));
-  });
-  it("only admins update gym settings", async () => {
+  it("only admins update gym settings, never owner or suspension", async () => {
     const base = { name: "Ironworks", ownerUid: "owner", brandPrimary: "10 80% 50%", thresholdLow: 10, thresholdModerate: 30, thresholdPacked: 60, geofenceRadiusM: 150 };
     await assertSucceeds(setDoc(doc(as("admin2"), "gyms", G), base));
     await assertFails(setDoc(doc(as("alice"), "gyms", G), base));
     await assertFails(setDoc(doc(as("admin2"), "gyms", G), { ...base, ownerUid: "admin2" }));
+    await assertFails(setDoc(doc(as("admin2"), "gyms", G), { ...base, status: "suspended" }));
+  });
+});
+
+describe("platform super admin", () => {
+  it("a verified super admin creates, edits and suspends any gym", async () => {
+    await assertSucceeds(setDoc(doc(asSuper(), "gyms", "newgym"), gymDoc()));
+    await assertSucceeds(updateDoc(doc(asSuper(), "gyms", G), { status: "suspended" }));
+    await assertSucceeds(updateDoc(doc(asSuper(), "gyms", G), { status: "active", ownerUid: "alice" }));
+  });
+  it("the same email is powerless until verified", async () => {
+    await assertFails(setDoc(doc(asSuper(false), "gyms", "newgym"), gymDoc()));
+    await assertFails(getDocs(collection(asSuper(false), "gyms", G, "classes")));
+    await assertFails(getDoc(doc(asSuper(false), "users", "alice")));
+  });
+  it("reads and manages every gym's data and members", async () => {
+    await assertSucceeds(getDocs(collection(asSuper(), "gyms", G, "classes")));
+    await assertSucceeds(getDocs(collection(asSuper(), "gyms", OTHER, "memberProfiles")));
+    await assertSucceeds(getDoc(doc(asSuper(), "users", "mallory")));
+    await assertSucceeds(setDoc(doc(asSuper(), "gyms", G, "classes", "box"), { name: "Box", day: "Fri", time: "06:00", capacity: 10, durationMin: 60 }));
+    await assertSucceeds(updateDoc(doc(asSuper(), "users", "alice"), { role: "admin" }));
+    await assertFails(updateDoc(doc(asSuper(), "users", "alice"), { gymId: OTHER }));
+  });
+  it("can attach their own profile to any gym as its admin", async () => {
+    const me = { uid: "platform", gymId: G, role: "admin", firstName: "Platform", lastName: "Admin", username: "platform", email: SUPER, leaderboardOptIn: false, buddyOptIn: false };
+    await assertSucceeds(setDoc(doc(asSuper(), "users", "platform"), me));
+    await assertSucceeds(updateDoc(doc(asSuper(), "users", "platform"), { gymId: OTHER }));
+    await assertFails(updateDoc(doc(asSuper(), "users", "platform"), { gymId: "no-such-gym" }));
+  });
+});
+
+describe("suspended gyms", () => {
+  beforeEach(async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => { await updateDoc(doc(ctx.firestore(), "gyms", G), { status: "suspended" }); });
+  });
+  it("members and admins lose access; the super admin keeps it", async () => {
+    await assertFails(getDocs(collection(as("alice"), "gyms", G, "classes")));
+    await assertFails(setDoc(doc(as("owner"), "gyms", G, "notices", "n1"), { title: "Hello there", body: "Still open for business?", tag: "GENERAL", authorName: "x", authorUid: "owner", createdAt: serverTimestamp() }));
+    await assertSucceeds(getDocs(collection(asSuper(), "gyms", G, "classes")));
+  });
+  it("nobody can sign up into it", async () => {
+    await assertFails(setDoc(doc(as("dave"), "users", "dave"), { uid: "dave", gymId: G, role: "user", firstName: "Dave", username: "dave", email: "dave@x.com", leaderboardOptIn: false, buddyOptIn: false, termsAcceptedAt: serverTimestamp() }));
   });
 });
 

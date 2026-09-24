@@ -34,8 +34,11 @@ export interface Gym {
   contactPhone: string;
   openHour: number; // 0-23, for charts
   closeHour: number; // 0-23
+  status: GymStatus; // set by the platform super admin only
   createdAt?: Timestamp;
 }
+
+export type GymStatus = "active" | "suspended";
 
 /** users/{uid} — private. Never client-writable: role, gymId (after create). */
 export interface UserProfile {

@@ -4,6 +4,7 @@ import { onAuthStateChanged, signOut as fbSignOut, type User } from "firebase/au
 import { doc, onSnapshot } from "firebase/firestore";
 import { getDb, getFirebaseAuth } from "@/lib/firebase";
 import { firebaseConfigured } from "@/lib/env";
+import { isSuperAdmin } from "@/lib/platform";
 import type { UserProfile } from "@/lib/types";
 
 export type AuthStatus = "loading" | "signedOut" | "noProfile" | "ready";
@@ -12,7 +13,11 @@ interface AuthCtx {
   status: AuthStatus;
   user: User | null;
   profile: UserProfile | null;
+  /** Verified platform super admin (see src/lib/platform.ts + firestore.rules). */
+  isSuper: boolean;
   signOut: () => Promise<void>;
+  /** Re-reads the Firebase user and forces a fresh ID token (e.g. after verifying email). */
+  refreshUser: () => Promise<void>;
 }
 
 const Ctx = React.createContext<AuthCtx | null>(null);
@@ -50,11 +55,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => { unsubProfile?.(); unsubAuth(); };
   }, []);
 
+  const [, bump] = React.useReducer((n: number) => n + 1, 0);
+
   const signOut = React.useCallback(async () => {
     await fbSignOut(getFirebaseAuth());
   }, []);
 
-  const value = React.useMemo(() => ({ status, user, profile, signOut }), [status, user, profile, signOut]);
+  const refreshUser = React.useCallback(async () => {
+    const u = getFirebaseAuth().currentUser;
+    if (!u) return;
+    await u.reload();
+    await u.getIdToken(true); // new token carries email_verified, which the rules check
+    bump();
+  }, []);
+
+  const isSuper = isSuperAdmin(user);
+  const value = React.useMemo(() => ({ status, user, profile, isSuper, signOut, refreshUser }), [status, user, profile, isSuper, signOut, refreshUser]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

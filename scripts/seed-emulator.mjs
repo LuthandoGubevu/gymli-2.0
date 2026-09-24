@@ -191,7 +191,8 @@ async function main() {
       const count = full ? c.capacity : Math.min(c.capacity - 1, Math.round(c.capacity * (0.3 + ((i * 7 + c.capacity) % 5) / 10)));
       const confirmed = [];
       for (let j = 0; j < count; j++) confirmed.push(pool[j % pool.length] + (j >= pool.length ? `-x${j}` : ""));
-      const waitlist = full ? pool.slice(count % pool.length, (count % pool.length) + 2).filter((u) => !confirmed.includes(u)) : [];
+      // Deterministic waitlist (Naledi first, then Ruan) so the e2e promotion check knows who to expect.
+      const waitlist = full ? [buddyIds.naledi, buddyIds.ruan].filter((u) => !confirmed.includes(u)) : [];
       await db.doc(`gyms/${G}/classSlots/${slotId}`).set({ classId: c.id, date: k, capacity: c.capacity, confirmedCount: count, waitlistOrder: waitlist });
       for (const uid of confirmed.filter((u) => !u.includes("-x"))) {
         await db.doc(`gyms/${G}/classBookings/${slotId}_${uid}`).set({ userId: uid, userName: "Member", classId: c.id, className: c.name, slotId, date: k, time: c.time, status: "confirmed", waitlistPosition: null, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
@@ -227,7 +228,11 @@ async function main() {
   const trainerSnap = await db.collection(`gyms/${G}/trainers`).limit(1).get();
   await db.collection(`gyms/${G}/trainerBookings`).add({ userId: buddyIds.lwazi, userName: "Lwazi Dube", trainerId: trainerSnap.docs[0].id, trainerName: trainerSnap.docs[0].data().name, requestedDate: addDays(today, 2), requestedTime: "07:00", note: "Want a technique check on my deadlift.", status: "pending", createdAt: FieldValue.serverTimestamp(), decidedAt: null });
 
-  console.log(`Done. Sign in with thandi@demo.gymli.app or admin@demo.gymli.app / ${PASSWORD}`);
+  // Platform super admin (emulator only — pre-verified so /super works immediately).
+  const superUser = await auth.createUser({ email: "lgubevu@gmail.com", password: PASSWORD, emailVerified: true, displayName: "Gymli Platform" });
+  await db.doc(`users/${superUser.uid}`).set({ uid: superUser.uid, gymId: G, role: "admin", email: "lgubevu@gmail.com", firstName: "Gymli", lastName: "Platform", username: "gymli", fitnessGoals: [], bio: "", usualTrainingTime: "Varies", leaderboardOptIn: false, buddyOptIn: false, autoPresenceEnabled: false, photoURL: "", termsAcceptedAt: Timestamp.now(), createdAt: Timestamp.now() });
+
+  console.log(`Done. Sign in with thandi@demo.gymli.app, admin@demo.gymli.app, or the super admin lgubevu@gmail.com (/super) — password ${PASSWORD}`);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

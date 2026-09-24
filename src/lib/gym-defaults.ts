@@ -6,7 +6,7 @@ export function gymDefaults(id: string, name = "Gymli"): Gym {
   return {
     id, name, ownerUid: "", address: "", timezone: DEFAULT_TZ, latitude: null, longitude: null, geofenceRadiusM: 100,
     thresholdLow: 20, thresholdModerate: 50, thresholdPacked: 80, brandPrimary: DEFAULT_BRAND, logoUrl: "",
-    promoTags: [], generalNotice: "", offerExpiry: null, contactEmail: "", contactPhone: "", openHour: 5, closeHour: 21,
+    promoTags: [], generalNotice: "", offerExpiry: null, contactEmail: "", contactPhone: "", openHour: 5, closeHour: 21, status: "active",
   };
 }
 
@@ -23,5 +23,7 @@ export function normalizeGym(id: string, raw: Record<string, unknown> | null | u
     thresholdPacked: pick("thresholdPacked"), brandPrimary: pick("brandPrimary"), logoUrl: pick("logoUrl"), promoTags: pick("promoTags"),
     generalNotice: pick("generalNotice"), offerExpiry: (raw.offerExpiry as string | null) ?? null, contactEmail: pick("contactEmail"),
     contactPhone: pick("contactPhone"), openHour: pick("openHour"), closeHour: pick("closeHour"),
+    status: raw.status === "suspended" ? "suspended" : "active",
+    createdAt: raw.createdAt as Gym["createdAt"],
   };
 }

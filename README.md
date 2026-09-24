@@ -30,7 +30,7 @@ NEXT_PUBLIC_DEFAULT_GYM_ID=demo
 NEXT_PUBLIC_DEMO_MODE=true
 ```
 
-Demo logins (password `password123`): `thandi@demo.gymli.app` (member, 13-day streak — check in to hit the 14-day milestone), `admin@demo.gymli.app` (gym owner/admin). Other members: `naledi@`, `kea@`, `lwazi@`, `ruan@`, `aisha@` … `@demo.gymli.app`.
+Demo logins (password `password123`): `thandi@demo.gymli.app` (member, 13-day streak — check in to hit the 14-day milestone), `admin@demo.gymli.app` (gym owner/admin), `lgubevu@gmail.com` (platform super admin, pre-verified in the emulator — open `/super`). Other members: `naledi@`, `kea@`, `lwazi@`, `ruan@`, `aisha@` … `@demo.gymli.app`.
 
 ## Tests — run all of these before calling anything done
 
@@ -38,7 +38,7 @@ Demo logins (password `password123`): `thandi@demo.gymli.app` (member, 13-day st
 |---|---|
 | `npm run lint` · `npm run typecheck` | Static checks (ESLint flat config incl. React-compiler purity rules). |
 | `npm test` | Unit tests: streak maths, gym-timezone dates, crowd levels, branding, tenant resolution, badges, forecast, rules-based coach. |
-| `npm run test:rules` | **29 security-rules tests** against the Firestore emulator — tenant isolation, role escalation, waitlist promotion, the Gym Buddy visibility exception, etc. |
+| `npm run test:rules` | **34 security-rules tests** against the Firestore emulator — tenant isolation, role escalation, waitlist promotion, the Gym Buddy visibility exception, super-admin powers (and their absence until verified), suspended gyms, etc. |
 | `npm run check:sw` | Executes `public/sw.js` in a sandbox (install → activate → fetch → offline fallback) and fails on any transpiler helper like `_async_to_generator`. |
 | `npm run e2e` | **Golden path in a real browser** (needs emulators + seed + running app): check-in → streak celebration, booking, waitlist, cross-user waitlist promotion + notification, PR logging, buddy match + chat, AI coach, notices, admin flows, and no horizontal scroll at 390 px. Set `CHROME_PATH` if Chromium isn't auto-detected. |
 
@@ -73,7 +73,20 @@ Each gym is a document `gyms/{gymId}`; all its data lives under that path. A req
 2. **Path entry** — on a single domain, `/g/ironworks` sets a cookie and opens that gym's sign-in.
 3. **Default** — `NEXT_PUBLIC_DEFAULT_GYM_ID` (localhost, previews).
 
-A signed-in member's own `users/{uid}.gymId` always wins; if they land on the wrong tenant they're moved to theirs. New gyms self-onboard at **`/start`**: that creates the gym and its owner (as admin) in one atomic batch that the rules verify. Billing is not wired up — gate `/start` (or the `gyms` create rule) before opening it publicly.
+A signed-in member's own `users/{uid}.gymId` always wins; if they land on the wrong tenant they're moved to theirs. Gyms are created by the platform super admin (below); `/start` is a "book a demo" contact page.
+
+### 5. Platform super admin
+
+`lgubevu@gmail.com` is the platform owner (listed in `superAdmins()` in `firestore.rules` **and** `src/lib/platform.ts` — a unit test fails if they differ). Its powers only apply once the address is **verified**, enforced by the rules via `request.auth.token.email_verified`.
+
+First-time setup on a real project:
+1. Deploy the rules, and enable **Authentication → Email/Password** in Firebase.
+2. Go to **`/super`** → *Create the platform account* with that email. Click the verification link Firebase emails you, then *I've verified — continue*.
+3. **New gym**: use your `NEXT_PUBLIC_DEFAULT_GYM_ID` (e.g. `demo`) for the first one, so the root domain has a gym to sign up into.
+4. **Open as admin** puts you in that gym's admin screens (it points your own profile at the gym). Add classes, and promote a member to admin under Manage → Members.
+5. **Suspend** a gym to cut off its members and admins without deleting anything. **Reactivate** restores access.
+
+The super admin can read and manage every gym's data. Gym admins can't change a gym's owner or suspension status, and nobody else can create gyms.
 
 Branding is data: the admin picks a colour/logo in **Gym settings**; it's injected as CSS variables server-side (no flash) and live-updated, and `/manifest.webmanifest` + `/icons/*` are generated per tenant so each gym's installed app has its own name, colour and icon.
 

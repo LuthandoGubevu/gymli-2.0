@@ -13,7 +13,7 @@ import { AppShell } from "./app-shell";
 
 /** Client-side gate for /app/*. Data access is enforced by Firestore rules regardless. */
 export function AuthGate({ children }: { children: React.ReactNode }) {
-  const { status, profile, signOut } = useAuth();
+  const { status, profile, signOut, isSuper } = useAuth();
   const { gym, tenantGymId } = useGym();
   const router = useRouter();
   const pathname = usePathname();
@@ -36,6 +36,19 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     }
   }, [mismatch, profile, pathname]);
 
+  if (status === "ready" && profile && !mismatch && gym.status === "suspended" && !isSuper) {
+    return (
+      <div className="grid min-h-dvh place-items-center p-6">
+        <div className="flex max-w-sm flex-col items-center gap-4 text-center">
+          <Logo name={gym.name} logoUrl={gym.logoUrl} />
+          <h1 className="font-display text-2xl font-bold">{gym.name}&apos;s app is paused</h1>
+          <p className="text-muted-foreground">Your gym&apos;s account is temporarily unavailable. Your streaks, records and bookings are safe — check with the front desk{gym.contactEmail ? <> or email <a href={`mailto:${gym.contactEmail}`}>{gym.contactEmail}</a></> : null}.</p>
+          <Button variant="outline" onClick={() => signOut()}>Sign out</Button>
+        </div>
+      </div>
+    );
+  }
+
   if (status === "ready" && profile && !mismatch) return <AppShell>{children}</AppShell>;
 
   if (status === "noProfile") {
@@ -45,6 +58,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
           <Logo name={gym.name} logoUrl={gym.logoUrl} />
           <h1 className="font-display text-2xl font-bold">Your profile isn&apos;t set up</h1>
           <p className="text-muted-foreground">You&apos;re signed in, but there&apos;s no member profile for this account. Finish signing up to continue.</p>
+          {isSuper ? <Button asChild size="lg"><Link href="/super">Open the platform console</Link></Button> : null}
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => signOut()}>Sign out</Button>
             <Button asChild><Link href="/signup?resume=1" className="text-primary-foreground no-underline hover:no-underline">Finish signup</Link></Button>

@@ -19,6 +19,11 @@ rules_version = '2';
 //     those cross-user writes to the exact transition they need.
 // Moving these to Cloud Functions later only requires tightening the rules
 // below — the data shapes don't change.
+//
+// PLATFORM SUPER ADMIN: the emails in superAdmins() (keep in sync with
+// src/lib/platform.ts — a unit test checks this) can manage every gym, and are the
+// only accounts that can create or suspend gyms. Only honoured once the address is
+// verified (token.email_verified), so nobody can claim it by just signing up with it.
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -35,9 +40,18 @@ service cloud.firestore {
     function gymPath(g) { return /databases/$(database)/documents/gyms/$(g); }
     function profilePath(g, u) { return /databases/$(database)/documents/gyms/$(g)/memberProfiles/$(u); }
 
+    function superAdmins() { return ['lgubevu@gmail.com']; }
+    function isSuper() {
+      return signedIn()
+        && request.auth.token.get('email_verified', false) == true
+        && request.auth.token.get('email', '').lower() in superAdmins();
+    }
+
     function me() { return get(userPath(uid())).data; }
-    function isMember(g) { return signedIn() && exists(userPath(uid())) && me().gymId == g; }
-    function isAdmin(g) { return isMember(g) && me().role == 'admin'; }
+    function gymActive(g) { return get(gymPath(g)).data.get('status', 'active') == 'active'; }
+    // Members of a suspended gym lose access to its data; the super admin never does.
+    function isMember(g) { return isSuper() || (signedIn() && exists(userPath(uid())) && me().gymId == g && gymActive(g)); }
+    function isAdmin(g) { return isSuper() || (isMember(g) && me().role == 'admin'); }
     function isSelfMember(g, u) { return signedIn() && uid() == u && isMember(g); }
 
     // Gym Buddy visibility exception: a member's otherwise-private stats are readable
@@ -57,19 +71,19 @@ service cloud.firestore {
       // Public: branding, name and PWA manifest are needed before sign-in.
       allow read: if true;
 
-      // Self-serve onboarding: a brand-new account creates a gym and, in the SAME
-      // batch, its own users/{uid} doc as that gym's admin (see users rule).
-      allow create: if signedIn()
+      // Only the platform super admin creates gyms (no self-serve signup: billing
+      // and onboarding happen outside the app).
+      allow create: if isSuper()
         && gymId.matches('^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$')
-        && incoming().ownerUid == uid()
-        && !exists(userPath(uid()))
-        && existsAfter(userPath(uid()))
-        && getAfter(userPath(uid())).data.gymId == gymId
         && isStr(incoming().name, 2, 60)
-        && isHsl(incoming().brandPrimary);
+        && isHsl(incoming().brandPrimary)
+        && incoming().get('status', 'active') in ['active', 'suspended'];
 
-      allow update: if isAdmin(gymId)
-        && incoming().ownerUid == existing().ownerUid
+      // Gym admins edit settings; only the super admin changes owner or suspension.
+      allow update: if (isSuper() && incoming().get('status', 'active') in ['active', 'suspended']
+          || (isAdmin(gymId)
+              && incoming().ownerUid == existing().ownerUid
+              && incoming().get('status', 'active') == existing().get('status', 'active')))
         && isStr(incoming().name, 2, 60)
         && isHsl(incoming().brandPrimary)
         && incoming().thresholdLow is int && incoming().thresholdModerate is int && incoming().thresholdPacked is int
@@ -365,21 +379,23 @@ service cloud.firestore {
         return signedIn() && exists(userPath(uid())) && me().role == 'admin' && me().gymId == existing().gymId;
       }
 
-      allow get, list: if (signedIn() && uid() == userId) || sameGymAdmin();
+      allow get, list: if (signedIn() && uid() == userId) || sameGymAdmin() || isSuper();
 
-      // Role is never client-chosen: 'user' always, or 'admin' only for the account that
-      // creates the gym in the same batch (gyms/{gymId}.ownerUid == this uid).
-      allow create: if signedIn() && uid() == userId
-        && incoming().uid == userId
-        && incoming().email == request.auth.token.email
-        && isStr(incoming().firstName, 1, 40)
-        && isStr(incoming().username, 3, 20)
-        && incoming().leaderboardOptIn is bool
-        && incoming().buddyOptIn is bool
-        && incoming().termsAcceptedAt == request.time
-        && existsAfter(gymPath(incoming().gymId))
-        && (incoming().role == 'user'
-            || (incoming().role == 'admin' && getAfter(gymPath(incoming().gymId)).data.ownerUid == userId));
+      // Role is never client-chosen: members always sign up as 'user' into an existing,
+      // active gym. Admins are promoted afterwards (by a gym admin or the super admin).
+      allow create: if (signedIn() && uid() == userId
+          && incoming().uid == userId
+          && incoming().email == request.auth.token.email
+          && isStr(incoming().firstName, 1, 40)
+          && isStr(incoming().username, 3, 20)
+          && incoming().leaderboardOptIn is bool
+          && incoming().buddyOptIn is bool
+          && incoming().termsAcceptedAt == request.time
+          && existsAfter(gymPath(incoming().gymId))
+          && getAfter(gymPath(incoming().gymId)).data.get('status', 'active') == 'active'
+          && incoming().role == 'user')
+        // The super admin's own profile, attached to whichever gym they're managing.
+        || (isSuper() && uid() == userId && existsAfter(gymPath(incoming().gymId)));
 
       // Members edit their own profile, never role / gymId / email / createdAt.
       allow update: if (signedIn() && uid() == userId
@@ -387,7 +403,10 @@ service cloud.firestore {
           && incoming().leaderboardOptIn is bool && incoming().buddyOptIn is bool)
         // Admins may promote/demote members of their own gym (but not the gym owner).
         || (sameGymAdmin() && onlyChanges(['role']) && incoming().role in ['user', 'admin']
-            && get(gymPath(existing().gymId)).data.ownerUid != userId);
+            && get(gymPath(existing().gymId)).data.ownerUid != userId)
+        // Super admin: switch their own profile between gyms, or change anyone's role.
+        || (isSuper() && uid() == userId && exists(gymPath(incoming().gymId)))
+        || (isSuper() && onlyChanges(['role']) && incoming().role in ['user', 'admin']);
 
       allow delete: if false;
 
@@ -398,7 +417,7 @@ service cloud.firestore {
         // buddy match, admin decision). Sender must belong to the recipient's gym.
         allow create: if signedIn()
           && exists(userPath(uid())) && exists(userPath(userId))
-          && me().gymId == get(userPath(userId)).data.gymId
+          && (isSuper() || me().gymId == get(userPath(userId)).data.gymId)
           && incoming().type in ['waitlist_promoted', 'buddy_match', 'buddy_message', 'trainer_booking', 'notice']
           && isStr(incoming().title, 1, 120)
           && isStr(incoming().body, 0, 500)

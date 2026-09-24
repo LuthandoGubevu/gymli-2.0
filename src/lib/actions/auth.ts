@@ -1,11 +1,10 @@
 "use client";
-import { createUserWithEmailAndPassword, deleteUser, signInWithEmailAndPassword, type User } from "firebase/auth";
+import { createUserWithEmailAndPassword, deleteUser, sendEmailVerification, signInWithEmailAndPassword, type User } from "firebase/auth";
+import { isSuperAdminEmail } from "../platform";
 import { doc, getDoc, serverTimestamp, writeBatch } from "firebase/firestore";
 import { getDb, getFirebaseAuth } from "../firebase";
 import { P } from "../paths";
-import type { Gym, TrainingTime } from "../types";
-import { DEFAULT_BRAND } from "../branding";
-import { gymDefaults } from "../gym-defaults";
+import type { TrainingTime } from "../types";
 
 export interface SignupInput {
   gymId: string;
@@ -66,34 +65,9 @@ export async function signUpMember(i: SignupInput, existing?: User | null) {
     if (!existing) await deleteUser(user).catch(() => {});
     throw e;
   }
+  // Super-admin powers require a verified address; start that flow right away.
+  if (isSuperAdminEmail(user.email) && !user.emailVerified) await sendEmailVerification(user).catch(() => {});
   return user;
-}
-
-/** New-gym onboarding: creates the gym and its owner (as admin) in one batch. */
-export async function signUpGymOwner(i: SignupInput & { gymName: string; brandPrimary?: string; timezone: string }) {
-  const gymRef = doc(getDb(), P.gym(i.gymId));
-  if ((await getDoc(gymRef)).exists()) throw new Error("That gym address is taken — pick another.");
-  const cred = await createUserWithEmailAndPassword(getFirebaseAuth(), i.email.trim(), i.password);
-  const d = profileDocs(cred.user.uid, i, "admin");
-  const db = getDb();
-  const base = gymDefaults(i.gymId, i.gymName.trim());
-  const gym: Omit<Gym, "id" | "createdAt"> & { createdAt: unknown } = {
-    ...base, name: i.gymName.trim(), ownerUid: cred.user.uid, brandPrimary: i.brandPrimary || DEFAULT_BRAND, timezone: i.timezone,
-    contactEmail: i.email.trim().toLowerCase(), createdAt: serverTimestamp(),
-  };
-  delete (gym as { id?: string }).id;
-  const b = writeBatch(db);
-  b.set(gymRef, gym);
-  b.set(doc(db, P.user(cred.user.uid)), d.user);
-  b.set(doc(db, P.memberProfile(i.gymId, cred.user.uid)), d.member);
-  b.set(doc(db, P.username(i.gymId, d.username)), { uid: cred.user.uid });
-  try {
-    await b.commit();
-  } catch (e) {
-    await deleteUser(cred.user).catch(() => {});
-    throw e;
-  }
-  return cred.user;
 }
 
 export async function signIn(email: string, password: string) {

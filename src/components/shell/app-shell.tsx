@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LogOut, Moon, PanelLeftClose, PanelLeftOpen, Shield, Sun, User } from "lucide-react";
+import { Building2, LogOut, Moon, PanelLeftClose, PanelLeftOpen, Shield, Sun, User } from "lucide-react";
 import { useAuth, useMe } from "@/components/providers/auth";
 import { useGym } from "@/components/providers/gym";
 import { Logo } from "@/components/icons";
@@ -27,7 +27,7 @@ function IconButton({ label, onClick, children, className }: { label: string; on
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { signOut } = useAuth();
+  const { signOut, isSuper } = useAuth();
   const { me, isAdmin } = useMe();
   const { gym } = useGym();
   const { theme, toggle } = useTheme();
@@ -93,6 +93,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {collapsed ? <IconButton label="Profile" onClick={() => router.push("/app/profile")}><User size={18} /></IconButton> : null}
             <IconButton label={themeLabel} onClick={toggle}><ThemeIcon size={18} /></IconButton>
             {isAdmin ? <IconButton label={roleLabel} onClick={switchRole}>{adminView ? <User size={18} /> : <Shield size={18} />}</IconButton> : null}
+            {isSuper ? <IconButton label="Platform console (all gyms)" onClick={() => router.push("/super")}><Building2 size={18} /></IconButton> : null}
             <IconButton label={collapsed ? "Expand sidebar" : "Collapse sidebar"} onClick={() => setCollapsed(!collapsed)}>
               {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
             </IconButton>
@@ -112,6 +113,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <NotificationBell uid={me.uid} className="h-11 w-11" />
             <button type="button" onClick={toggle} aria-label={themeLabel} className="grid h-11 w-11 place-items-center text-muted-foreground"><ThemeIcon size={20} /></button>
             {isAdmin ? <button type="button" onClick={switchRole} aria-label={roleLabel} className="grid h-11 w-11 place-items-center text-muted-foreground">{adminView ? <User size={20} /> : <Shield size={20} />}</button> : null}
+            {isSuper ? <Link href="/super" aria-label="Platform console (all gyms)" className="grid h-11 w-11 place-items-center text-muted-foreground"><Building2 size={20} /></Link> : null}
             <Link href="/app/profile" aria-label="Profile" className="grid h-11 w-11 place-items-center"><Avatar initials={ini} size={30} photoURL={me.photoURL} /></Link>
           </div>
         </header>
