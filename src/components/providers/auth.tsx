@@ -48,19 +48,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setAuthHint(!!u);
         if (!u) { setProfile(null); setStatus("signedOut"); return; }
         setStatus("loading");
+        // Status only settles once BOTH the profile and the platform-admin check are known,
+        // so nothing routes a profile-less platform admin before isSuper is decided.
+        let platformKnown = false;
+        let settled: AuthStatus | null = null;
+        const publish = () => { if (platformKnown && settled) setStatus(settled); };
         // Granted by hand in the Firebase console; live, so /super unlocks without a reload.
         unsubPlatform = onSnapshot(
           doc(getDb(), "platformAdmins", u.uid),
-          (snap) => setPlatformUid(snap.exists() ? u.uid : null),
-          () => setPlatformUid(null),
+          (snap) => { setPlatformUid(snap.exists() ? u.uid : null); platformKnown = true; publish(); },
+          () => { setPlatformUid(null); platformKnown = true; publish(); },
         );
         unsubProfile = onSnapshot(
           doc(getDb(), "users", u.uid),
           (snap) => {
-            if (snap.exists()) { setProfile({ ...(snap.data() as UserProfile), uid: u.uid }); setStatus("ready"); }
-            else { setProfile(null); setStatus("noProfile"); }
+            if (snap.exists()) { setProfile({ ...(snap.data() as UserProfile), uid: u.uid }); settled = "ready"; }
+            else { setProfile(null); settled = "noProfile"; }
+            publish();
           },
-          () => { setProfile(null); setStatus("noProfile"); },
+          () => { setProfile(null); settled = "noProfile"; publish(); },
         );
       });
     return () => { unsubProfile?.(); unsubPlatform?.(); unsubAuth(); };

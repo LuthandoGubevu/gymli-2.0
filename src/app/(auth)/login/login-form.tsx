@@ -28,7 +28,7 @@ export function LoginForm() {
     setFormError("");
     try {
       await signIn(v.email, v.password);
-      // RedirectIfAuthed moves us on once the profile has loaded.
+      // RedirectIfAuthed moves us on once we know whether there's a profile.
     } catch (e) {
       setFormError(errorMessage(e));
     }
@@ -42,7 +42,7 @@ export function LoginForm() {
 
   return (
     <>
-      <RedirectIfAuthed />
+      <RedirectIfAuthed profileless />
       <div className="flex flex-col gap-2.5">
         <span className="eyebrow text-accent-ink">Welcome back</span>
         <h1 className="font-display text-4xl font-bold leading-[1.05] tracking-[-0.03em]">Sign in to {exists ? gym.name : "Gymli"}</h1>

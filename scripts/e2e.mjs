@@ -195,6 +195,27 @@ await session("intruder", "thandi@demo.gymli.app", async (page, s) => {
   });
 });
 
+// Accounts with no member profile used to sit on /login with no error after signing in.
+await session("profileless", null, async (page, s) => {
+  const login = async (email) => {
+    await page.goto(`${BASE}/login`);
+    await page.fill("#email", email);
+    await page.fill("#password", "password123");
+    await page.click("button[type=submit]");
+  };
+  await s("platform admin without a profile lands on /super from /login", async () => {
+    await login("owner2@gymli.test");
+    await page.waitForURL(/\/super/, { timeout: 20000 });
+    await page.getByRole("heading", { name: "All gyms" }).waitFor();
+    await page.getByRole("button", { name: "Sign out" }).click();
+    await page.getByText("Sign in to manage gyms").waitFor();
+  });
+  await s("member without a profile is offered to finish signup", async () => {
+    await login("noprofile@demo.gymli.app");
+    await page.getByRole("heading", { name: /profile isn.t set up/ }).waitFor({ timeout: 20000 });
+  });
+});
+
 await session("mobile", "thandi@demo.gymli.app", async (page, s) => {
   for (const path of ["/app", "/app/crowd", "/app/classes", "/app/records", "/app/buddy", "/app/notices"]) {
     await s(`no horizontal scroll on ${path}`, async () => {
